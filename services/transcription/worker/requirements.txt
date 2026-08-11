@@ -1,0 +1,10 @@
+# Speech engine dependencies.
+#
+# faster-whisper brings ctranslate2 (inference) and the bundled Silero VAD ONNX
+# model, so there is no torch dependency and no separate VAD download.
+#
+# For GPU: install the CUDA-enabled onnxruntime and make sure cuBLAS and cuDNN
+# are on PATH. CPU-only works out of the box, just slower.
+
+faster-whisper>=1.1.0
+numpy>=1.26

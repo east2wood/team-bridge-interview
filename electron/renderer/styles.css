@@ -1,0 +1,238 @@
+:root {
+  /* Opaque. A translucent panel over a text editor makes the transcript hard
+     to read, and readability is the entire job of this window. The window
+     itself stays transparent so the rounded corners composite cleanly. */
+  --bg: #111217;
+  --fg: #e8e9ef;
+  --muted: #9ea3b4;
+  --accent: #6366f1;
+  --live: #ef4444;
+  --border: rgba(255, 255, 255, 0.09);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--fg);
+  /* The overlay is a glanceable surface; selecting text in it is not the point. */
+  user-select: none;
+}
+
+.overlay {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: 0 0 auto;
+}
+
+.dot--live {
+  background: var(--live);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot--live {
+    animation: none;
+  }
+}
+
+.status {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.elapsed {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.meter {
+  margin-left: auto;
+  width: 56px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.meter__fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 90ms linear;
+}
+
+.transcript {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 10px 12px;
+  scrollbar-width: thin;
+  user-select: text;
+}
+
+.line {
+  margin: 0 0 8px;
+  line-height: 1.45;
+}
+
+.line--partial {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.line--unsure {
+  border-left: 2px solid rgba(239, 68, 68, 0.5);
+  padding-left: 8px;
+}
+
+.placeholder {
+  color: var(--muted);
+  margin: 0;
+}
+
+.tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0b0c10;
+  background: var(--muted);
+}
+
+.tag--system {
+  background: #93c5fd;
+}
+
+.tag--microphone {
+  background: #86efac;
+}
+
+.jump {
+  position: sticky;
+  bottom: 0;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.consent {
+  flex: 1 1 auto;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.consent p {
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+
+.consent__warn {
+  color: #fca5a5;
+}
+
+.footer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+  padding: 8px 12px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+button {
+  font: inherit;
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+button:disabled:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+button.ghost {
+  margin-left: auto;
+  background: transparent;
+}
+
+.notice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 8px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.notice--warn {
+  background: rgba(234, 179, 8, 0.16);
+  border-color: rgba(234, 179, 8, 0.4);
+}
+
+.notice--error {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.4);
+}

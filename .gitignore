@@ -1,0 +1,9 @@
+node_modules/
+out/
+release/
+dist/
+.venv/
+build/*.png
+*.log
+.DS_Store
+models/
