@@ -1,0 +1,22 @@
+# Store and check out text files with LF everywhere, including Windows.
+#
+# `eol=lf` overrides a developer's core.autocrlf, so the repo cannot drift back
+# to CRLF and a macOS or Linux clone never sees whole-file line-ending diffs.
+# Node, Electron, Python, and Git Bash all handle LF natively on Windows.
+* text=auto eol=lf
+
+# Shell scripts and the Python worker must keep LF regardless of detection —
+# CRLF breaks shebang lines.
+*.sh   text eol=lf
+*.py   text eol=lf
+
+# Windows-only batch files genuinely need CRLF.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# Never run line-ending conversion over binaries.
+*.png  binary
+*.ico  binary
+*.icns binary
+*.wav  binary
+*.pyc  binary
