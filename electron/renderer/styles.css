@@ -1,19 +1,4 @@
-:root {
-  /* Opaque. A translucent panel over a text editor makes the transcript hard
-     to read, and readability is the entire job of this window. The window
-     itself stays transparent so the rounded corners composite cleanly. */
-  --bg: #111217;
-  --fg: #e8e9ef;
-  --muted: #9ea3b4;
-  --accent: #6366f1;
-  --live: #ef4444;
-  --border: rgba(255, 255, 255, 0.09);
-  color-scheme: dark;
-}
-
-* {
-  box-sizing: border-box;
-}
+@import './theme.css';
 
 html,
 body {
@@ -21,9 +6,6 @@ body {
   height: 100%;
   background: transparent;
   overflow: hidden;
-  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  font-size: 13px;
-  color: var(--fg);
   /* The overlay is a glanceable surface; selecting text in it is not the point. */
   user-select: none;
 }
@@ -88,7 +70,7 @@ body {
   width: 56px;
   height: 4px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--control);
   overflow: hidden;
 }
 
@@ -134,16 +116,16 @@ body {
   border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
-  color: #0b0c10;
+  color: var(--tag-fg);
   background: var(--muted);
 }
 
 .tag--system {
-  background: #93c5fd;
+  background: var(--tag-system);
 }
 
 .tag--microphone {
-  background: #86efac;
+  background: var(--tag-mic);
 }
 
 .jump {
@@ -165,7 +147,7 @@ body {
 }
 
 .consent__warn {
-  color: #fca5a5;
+  color: var(--live);
 }
 
 .footer {
@@ -177,40 +159,6 @@ body {
 .actions {
   display: flex;
   gap: 8px;
-}
-
-button {
-  font: inherit;
-  color: var(--fg);
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 5px 12px;
-  cursor: pointer;
-}
-
-button:hover {
-  background: rgba(255, 255, 255, 0.14);
-}
-
-button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-button:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
-button:disabled:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-button.primary {
-  background: var(--accent);
-  border-color: transparent;
-  font-weight: 600;
 }
 
 button.ghost {
@@ -228,11 +176,11 @@ button.ghost {
 }
 
 .notice--warn {
-  background: rgba(234, 179, 8, 0.16);
-  border-color: rgba(234, 179, 8, 0.4);
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
 }
 
 .notice--error {
-  background: rgba(239, 68, 68, 0.16);
-  border-color: rgba(239, 68, 68, 0.4);
+  background: var(--error-bg);
+  border-color: var(--error-border);
 }

@@ -7,6 +7,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  nativeTheme,
   session,
   Tray,
 } from 'electron'
@@ -15,6 +16,7 @@ import {
   WHISPER_MODELS,
   type AudioChannel,
   type CaptureCommand,
+  type SecretsInfo,
   type Settings,
   type WhisperModel,
 } from '@shared/types'
@@ -26,7 +28,15 @@ import * as repo from '@services/history/session-repo'
 import { WhisperService } from '@services/transcription/whisper-service'
 import { SessionManager } from './session-manager'
 import { registerHotkey, unregisterAll } from './hotkeys'
-import { createOverlay, getOverlay, hideOverlay, showOverlay } from './windows'
+import { testConnection, normaliseUrl } from '@services/teambridge/connection'
+import {
+  createOverlay,
+  getOverlay,
+  getSettingsWindow,
+  hideOverlay,
+  showOverlay,
+  showSettings,
+} from './windows'
 
 const log = child('main')
 
@@ -58,6 +68,7 @@ async function bootstrap(): Promise<void> {
 
   wireEvents()
   registerIpc()
+  applyTheme()
   createOverlay()
   createTray()
   applyHotkey()
@@ -164,9 +175,15 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.settingsPatch, async (_e, patch: Partial<Settings>) => {
     const before = settings().all()
+    // Store the server URL in a canonical form so "example.com/" and
+    // "https://example.com" do not behave differently.
+    if (patch.serverUrl !== undefined) patch.serverUrl = normaliseUrl(patch.serverUrl)
     const after = settings().patch(patch)
 
-    if (patch.hotkey !== undefined || patch.hotkeyMode !== undefined) applyHotkey()
+    if (patch.theme !== undefined) applyTheme()
+
+    let hotkey: { ok: boolean; reason?: string } | undefined
+    if (patch.hotkey !== undefined || patch.hotkeyMode !== undefined) hotkey = applyHotkey()
 
     const engineChanged =
       after.model !== before.model ||
@@ -179,8 +196,45 @@ function registerIpc(): void {
     if (engineChanged && !sessions.isRecording()) {
       await whisper.restartWith(whisperOptions())
     }
-    return after
+    updateTray()
+    return { settings: after, hotkey }
   })
+
+  ipcMain.handle(IPC.secretsGet, (): SecretsInfo => {
+    const store = settings()
+    return {
+      hasToken: store.getApiKey() !== null,
+      hint: store.apiKeyHint(),
+      storageAvailable: store.encryptionAvailable(),
+    }
+  })
+
+  ipcMain.handle(IPC.secretsSetToken, (_e, token: string): SecretsInfo => {
+    const store = settings()
+    const trimmed = token.trim()
+    if (trimmed) store.setApiKey(trimmed)
+    else store.clearApiKey()
+    return {
+      hasToken: store.getApiKey() !== null,
+      hint: store.apiKeyHint(),
+      storageAvailable: store.encryptionAvailable(),
+    }
+  })
+
+  ipcMain.handle(IPC.secretsClearToken, (): SecretsInfo => {
+    const store = settings()
+    store.clearApiKey()
+    return { hasToken: false, hint: null, storageAvailable: store.encryptionAvailable() }
+  })
+
+  // The token stays in main: the renderer asks for a test, never for the token.
+  ipcMain.handle(IPC.connectionTest, async (_e, serverUrl?: string) => {
+    const store = settings()
+    return testConnection(serverUrl ?? store.get('serverUrl'), store.getApiKey())
+  })
+
+  ipcMain.on(IPC.settingsOpen, () => showSettings())
+  ipcMain.on(IPC.settingsClose, () => getSettingsWindow()?.close())
 
   ipcMain.handle(IPC.transcriptGet, (_e, sessionId: string) => repo.transcriptText(sessionId))
 
@@ -201,7 +255,7 @@ function registerIpc(): void {
   ipcMain.on(IPC.overlayDismiss, () => hideOverlay())
 }
 
-function applyHotkey(): void {
+function applyHotkey(): { ok: boolean; reason?: string } {
   const cfg = settings().all()
   const result = registerHotkey(cfg.hotkey, { onTrigger: toggleSession })
   if (!result.ok) {
@@ -212,6 +266,15 @@ function applyHotkey(): void {
       message: `${result.accelerator} could not be registered: ${result.reason}. Use the tray menu to record.`,
     })
   }
+  return { ok: result.ok, reason: result.reason }
+}
+
+/**
+ * Drives Chromium's `prefers-color-scheme` in every window, so the renderers
+ * need no theme plumbing of their own — they just honour the media query.
+ */
+function applyTheme(): void {
+  nativeTheme.themeSource = settings().get('theme')
 }
 
 function toggleSession(): void {
@@ -289,6 +352,7 @@ function updateTray(): void {
       },
       { type: 'separator' },
       { label: 'Show overlay', click: () => showOverlay() },
+      { label: 'Settings…', click: () => showSettings() },
       {
         label: 'Copy last transcript',
         enabled: lastFinishedSessionId !== null,

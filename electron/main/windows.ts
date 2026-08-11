@@ -86,6 +86,63 @@ function loadOverlay(win: BrowserWindow, attempt = 0): void {
   })
 }
 
+let settingsWindow: BrowserWindow | null = null
+
+/**
+ * The settings window is a normal, focusable, framed window — unlike the
+ * overlay, which deliberately never becomes one. Only one may exist; opening
+ * again focuses the existing window rather than stacking duplicates.
+ */
+export function showSettings(): BrowserWindow {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    if (settingsWindow.isMinimized()) settingsWindow.restore()
+    settingsWindow.focus()
+    return settingsWindow
+  }
+
+  const win = new BrowserWindow({
+    width: 560,
+    height: 680,
+    minWidth: 460,
+    minHeight: 480,
+    show: false,
+    title: 'TeamBridge Assist — Settings',
+    autoHideMenuBar: true,
+    backgroundColor: '#111217',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  })
+
+  win.setMenuBarVisibility(false)
+  win.once('ready-to-show', () => win.show())
+  win.on('closed', () => {
+    settingsWindow = null
+  })
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+
+  const devUrl = process.env['ELECTRON_RENDERER_URL']
+  if (devUrl) {
+    void win.loadURL(`${devUrl}/settings.html`)
+  } else {
+    void win.loadFile(join(__dirname, '../renderer/settings.html'))
+  }
+
+  settingsWindow = win
+  return win
+}
+
+export function getSettingsWindow(): BrowserWindow | null {
+  return settingsWindow && !settingsWindow.isDestroyed() ? settingsWindow : null
+}
+
 /** Show without taking focus from whatever the user is actually doing. */
 export function showOverlay(): void {
   const win = getOverlay() ?? createOverlay()

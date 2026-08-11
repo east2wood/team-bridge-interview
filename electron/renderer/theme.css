@@ -1,0 +1,97 @@
+/*
+ * Theme tokens shared by the overlay and the settings window.
+ *
+ * Light is the base; dark is applied through `prefers-color-scheme`, which
+ * main drives via nativeTheme.themeSource. That means the Appearance setting
+ * works with no theme plumbing in either renderer.
+ */
+
+:root {
+  --bg: #f7f7f9;
+  --panel: #ffffff;
+  --fg: #1b1c22;
+  --muted: #5f6472;
+  --accent: #4f46e5;
+  --accent-fg: #ffffff;
+  --live: #dc2626;
+  --border: rgba(0, 0, 0, 0.12);
+  --control: rgba(0, 0, 0, 0.04);
+  --control-hover: rgba(0, 0, 0, 0.09);
+  --ok: #15803d;
+  --warn-bg: rgba(234, 179, 8, 0.16);
+  --warn-border: rgba(161, 98, 7, 0.45);
+  --error-bg: rgba(220, 38, 38, 0.12);
+  --error-border: rgba(185, 28, 28, 0.45);
+  --tag-system: #1d4ed8;
+  --tag-mic: #15803d;
+  --tag-fg: #ffffff;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111217;
+    --panel: #16181f;
+    --fg: #e8e9ef;
+    --muted: #9ea3b4;
+    --accent: #6366f1;
+    --accent-fg: #ffffff;
+    --live: #ef4444;
+    --border: rgba(255, 255, 255, 0.09);
+    --control: rgba(255, 255, 255, 0.08);
+    --control-hover: rgba(255, 255, 255, 0.14);
+    --ok: #4ade80;
+    --warn-bg: rgba(234, 179, 8, 0.16);
+    --warn-border: rgba(234, 179, 8, 0.4);
+    --error-bg: rgba(239, 68, 68, 0.16);
+    --error-border: rgba(239, 68, 68, 0.4);
+    --tag-system: #93c5fd;
+    --tag-mic: #86efac;
+    --tag-fg: #0b0c10;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--fg);
+}
+
+button {
+  font: inherit;
+  color: var(--fg);
+  background: var(--control);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--control-hover);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-fg);
+  font-weight: 600;
+}

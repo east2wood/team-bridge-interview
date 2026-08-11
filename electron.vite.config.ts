@@ -38,7 +38,10 @@ export default defineConfig({
       assetsInlineLimit: (filePath: string) =>
         filePath.endsWith('.js') ? false : undefined,
       rollupOptions: {
-        input: { overlay: resolve('electron/renderer/index.html') },
+        input: {
+          overlay: resolve('electron/renderer/index.html'),
+          settings: resolve('electron/renderer/settings.html'),
+        },
       },
     },
   },

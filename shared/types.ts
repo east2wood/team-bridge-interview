@@ -71,7 +71,29 @@ export const MODEL_LABELS: Record<WhisperModel, string> = {
   'large-v3': 'large-v3 — ~3 GB, most accurate',
 }
 
+/** Result of probing the configured TeamBridge server. */
+export interface ConnectionTestResult {
+  ok: boolean
+  /** HTTP status, when a response was received at all. */
+  status?: number
+  message: string
+  latencyMs?: number
+  /** True when the token would travel over plain http. */
+  insecure?: boolean
+}
+
+/** What the renderer is allowed to know about stored secrets. */
+export interface SecretsInfo {
+  hasToken: boolean
+  /** Last 4 characters only — enough to recognise, useless if leaked. */
+  hint: string | null
+  /** False when the OS credential store is unavailable and tokens cannot be saved. */
+  storageAvailable: boolean
+}
+
 export interface Settings {
+  /** Base URL of the TeamBridge server, without a trailing slash. */
+  serverUrl: string
   hotkey: string
   hotkeyMode: 'toggle' | 'push-to-talk'
   microphoneEnabled: boolean
@@ -89,6 +111,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
+  serverUrl: '',
   hotkey: 'Control+Shift+Space',
   hotkeyMode: 'toggle',
   microphoneEnabled: false,

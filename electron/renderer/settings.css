@@ -1,0 +1,135 @@
+@import './theme.css';
+
+html,
+body {
+  height: 100%;
+  background: var(--bg);
+}
+
+.page {
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 20px 24px 40px;
+}
+
+h1 {
+  font-size: 20px;
+  font-weight: 650;
+  margin: 4px 0 20px;
+}
+
+.section {
+  border-top: 1px solid var(--border);
+  padding: 18px 0 6px;
+}
+
+.section h2 {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 14px;
+}
+
+.field {
+  display: block;
+  margin-bottom: 16px;
+}
+
+.field__label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.field__hint {
+  display: block;
+  color: var(--muted);
+  margin-top: 6px;
+  line-height: 1.45;
+}
+
+input,
+select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  width: 100%;
+}
+
+input::placeholder {
+  color: var(--muted);
+}
+
+input:disabled {
+  opacity: 0.6;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.row input {
+  flex: 1 1 200px;
+  width: auto;
+}
+
+.row button {
+  flex: 0 0 auto;
+}
+
+button.danger {
+  color: var(--live);
+}
+
+button.hotkey {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  min-width: 190px;
+  padding: 7px 12px;
+}
+
+button.hotkey--capturing {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.result {
+  line-height: 1.4;
+}
+
+.result--ok {
+  color: var(--ok);
+}
+
+.result--bad {
+  color: var(--live);
+}
+
+.callout {
+  margin: 12px 0 0;
+  padding: 9px 11px;
+  border: 1px solid;
+  border-radius: 6px;
+  line-height: 1.45;
+}
+
+.callout--warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+}
+
+.callout--error {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}

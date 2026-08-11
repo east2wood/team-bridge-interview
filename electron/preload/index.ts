@@ -3,8 +3,10 @@ import { IPC } from '@shared/channels'
 import type {
   AudioChannel,
   CaptureCommand,
+  ConnectionTestResult,
   EngineStatus,
   Partial as PartialText,
+  SecretsInfo,
   Segment,
   SessionStatePayload,
   Settings,
@@ -46,8 +48,22 @@ const api = {
 
   getSettings: (): Promise<Settings & { engine: EngineStatus; session: SessionStatePayload }> =>
     ipcRenderer.invoke(IPC.settingsGet),
-  patchSettings: (patch: globalThis.Partial<Settings>): Promise<Settings> =>
+  patchSettings: (
+    patch: globalThis.Partial<Settings>,
+  ): Promise<{ settings: Settings; hotkey?: { ok: boolean; reason?: string } }> =>
     ipcRenderer.invoke(IPC.settingsPatch, patch),
+
+  // Secrets: the renderer can store, clear, and see a hint. It can never read
+  // the token back — connection tests happen in main.
+  getSecrets: (): Promise<SecretsInfo> => ipcRenderer.invoke(IPC.secretsGet),
+  setToken: (token: string): Promise<SecretsInfo> =>
+    ipcRenderer.invoke(IPC.secretsSetToken, token),
+  clearToken: (): Promise<SecretsInfo> => ipcRenderer.invoke(IPC.secretsClearToken),
+  testConnection: (serverUrl?: string): Promise<ConnectionTestResult> =>
+    ipcRenderer.invoke(IPC.connectionTest, serverUrl),
+
+  openSettings: () => ipcRenderer.send(IPC.settingsOpen),
+  closeSettings: () => ipcRenderer.send(IPC.settingsClose),
   copyTranscript: (
     sessionId?: string,
   ): Promise<{ copied: boolean; chars?: number; reason?: string }> =>

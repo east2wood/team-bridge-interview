@@ -15,6 +15,15 @@ export const IPC = {
   overlayDismiss: 'overlay:dismiss',
   transcriptGet: 'transcript:get',
 
+  // settings window
+  settingsOpen: 'settings:open',
+  settingsClose: 'settings:close',
+  secretsGet: 'secrets:get',
+  secretsSetToken: 'secrets:set-token',
+  secretsClearToken: 'secrets:clear-token',
+  connectionTest: 'connection:test',
+  hotkeyProbe: 'hotkey:probe',
+
   // main → renderer
   onCaptureCommand: 'capture:command',
   onSessionState: 'session:state',

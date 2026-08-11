@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Same policy as the overlay: no remote content is ever loaded. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self'; connect-src 'self'"
+    />
+    <title>TeamBridge Assist — Settings</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Named settings-entry, not settings.tsx: Windows filenames are
+         case-insensitive, so settings.tsx and SettingsPage.tsx would be
+         fine but settings.tsx and Settings.tsx would collide silently. -->
+    <script type="module" src="./settings-entry.tsx"></script>
+  </body>
+</html>

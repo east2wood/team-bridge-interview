@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, safeStorage } from 'electron'
 import { DEFAULT_SETTINGS, type Settings } from '@shared/types'
@@ -75,6 +75,14 @@ class SettingsStore {
       throw new Error('OS encryption is unavailable; refusing to store the key in plaintext')
     }
     writeFileSync(this.secretFile, safeStorage.encryptString(key))
+  }
+
+  clearApiKey(): void {
+    if (existsSync(this.secretFile)) rmSync(this.secretFile)
+  }
+
+  encryptionAvailable(): boolean {
+    return safeStorage.isEncryptionAvailable()
   }
 
   /** Last 4 characters only — enough to recognise, useless if leaked. */
