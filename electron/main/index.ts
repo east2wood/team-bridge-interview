@@ -75,10 +75,29 @@ async function bootstrap(): Promise<void> {
  */
 function configureLoopbackCapture(): void {
   session.defaultSession.setDisplayMediaRequestHandler(
-    (_request, callback) => {
-      // Audio only. Chromium still requires the request to carry a video
-      // constraint; the renderer stops the video track immediately.
-      callback({ video: undefined, audio: 'loopback' })
+    (request, callback) => {
+      log.info(
+        {
+          videoRequested: request.videoRequested,
+          audioRequested: request.audioRequested,
+          frame: request.frame?.url,
+        },
+        'display-media requested',
+      )
+      try {
+        // Audio only: omit `video` entirely. Electron validates the property
+        // whenever the key is present, so `video: undefined` throws
+        // "video must be a WebFrameMain or DesktopCapturerSource" before
+        // capture even starts. The renderer must correspondingly request
+        // `video: false`, or this fails with "Video was requested, but no
+        // video stream was provided".
+        callback({ audio: 'loopback' })
+      } catch (err) {
+        // Without this the rejection is unhandled and the renderer sees only
+        // a generic AbortError with no clue what went wrong.
+        log.error({ err }, 'display-media request handler failed')
+        callback({})
+      }
     },
     { useSystemPicker: false },
   )

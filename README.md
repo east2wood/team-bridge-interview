@@ -86,8 +86,20 @@ Segmentation policy (tunable in [`whisper_worker.py`](services/transcription/wor
 |---|---|---|
 | Silence hangover | 700 ms | Shorter splits mid-sentence at natural pauses |
 | Min speech | 250 ms | Below this it's a click, not a word |
-| Max speech | 30 s | Whisper degrades on longer input; cut at the quietest point |
+| Max speech | 20 s | Whisper degrades on longer input; also bounds worst-case VAD cost |
 | Speech padding | 200 ms | Stops VAD clipping the first and last phoneme |
+| VAD interval | 400 ms | How much new audio to collect before re-scanning — see below |
+| Partial look-back | 12 s | Bounds the cost of re-transcribing an in-progress utterance |
+
+**The VAD interval is load-bearing, not a micro-optimisation.** `get_speech_timestamps` scans the whole buffer, so running it per 20 ms frame is O(n²) in utterance length: with continuous speech the buffer grows toward the max-speech cap and VAD re-scans all of it 50 times a second. Measured on a GTX 1050 Ti, that made the worker fall permanently behind — 53 s of speech produced **zero** committed segments and never drained. Scanning ~2.5 times a second instead is ~20× less work and still detects end-of-utterance well inside the hangover window.
+
+Measured after the fix, same hardware and audio, fed at exactly 1× real time:
+
+| | Before | After |
+|---|---|---|
+| Segments committed | 0 | 12 |
+| Lag behind live | unbounded | 2–3 s, constant |
+| Drain after stop | never finished | 1.5 s |
 
 The worker emits two kinds of result. **Partials** are provisional text for speech still being spoken — re-transcribed every 2 s at `beam_size=1`, displayed, never persisted. **Segments** are committed at `beam_size=5`, written to SQLite as they commit. Only segments reach storage or the AI layer; partials churn too much to be worth either.
 

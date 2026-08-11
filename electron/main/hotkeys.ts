@@ -14,6 +14,14 @@ export interface HotkeyRegistration {
 }
 
 let registered: string | null = null
+let lastTriggerAt = 0
+
+/**
+ * Windows key auto-repeat fires globalShortcut continuously while the
+ * combination is held, which toggles recording many times a second. Anything
+ * faster than a deliberate second press is repeat, not intent.
+ */
+const REPEAT_GUARD_MS = 600
 
 /**
  * Registers the recording accelerator.
@@ -31,9 +39,19 @@ export function registerHotkey(accelerator: string, handlers: HotkeyHandlers): H
     return { ok: false, accelerator, reason: 'a hotkey needs at least one modifier' }
   }
 
+  const onTrigger = () => {
+    const now = Date.now()
+    if (now - lastTriggerAt < REPEAT_GUARD_MS) {
+      log.debug({ sinceLast: now - lastTriggerAt }, 'ignoring hotkey auto-repeat')
+      return
+    }
+    lastTriggerAt = now
+    handlers.onTrigger()
+  }
+
   let ok = false
   try {
-    ok = globalShortcut.register(accelerator, handlers.onTrigger)
+    ok = globalShortcut.register(accelerator, onTrigger)
   } catch (err) {
     return { ok: false, accelerator, reason: (err as Error).message }
   }

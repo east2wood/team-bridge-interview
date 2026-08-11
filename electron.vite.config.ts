@@ -30,6 +30,13 @@ export default defineConfig({
     // overlay fails to load with ERR_CONNECTION_REFUSED.
     server: { host: '127.0.0.1', port: 5173, strictPort: true },
     build: {
+      // Never inline JavaScript assets. The AudioWorklet is small enough that
+      // Vite would turn it into a `data:` URL, which the overlay's
+      // `script-src 'self'` CSP blocks just like a blob: URL — and the
+      // resulting AbortError is indistinguishable from a capture failure.
+      // Non-JS assets keep the default inlining behaviour.
+      assetsInlineLimit: (filePath: string) =>
+        filePath.endsWith('.js') ? false : undefined,
       rollupOptions: {
         input: { overlay: resolve('electron/renderer/index.html') },
       },

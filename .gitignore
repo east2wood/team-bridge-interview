@@ -7,3 +7,8 @@ build/*.png
 *.log
 .DS_Store
 models/
+
+# Build artifacts
+__pycache__/
+*.pyc
+*.tsbuildinfo

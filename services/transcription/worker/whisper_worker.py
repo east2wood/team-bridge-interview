@@ -38,11 +38,22 @@ SAMPLE_RATE = 16000
 # Segmentation policy. These are the knobs worth tuning against real calls.
 SILENCE_HANGOVER_MS = 700      # silence before an utterance is considered over
 MIN_SPEECH_MS = 250            # shorter than this is a click, not speech
-MAX_SPEECH_S = 30              # hard cut; Whisper degrades on longer input
+MAX_SPEECH_S = 20              # hard cut; also bounds worst-case VAD cost
 SPEECH_PAD_MS = 200            # keep a little air either side of speech
 VAD_THRESHOLD = 0.5
 PARTIAL_INTERVAL_S = 2.0       # how often to re-transcribe in-progress speech
+MAX_PARTIAL_S = 12.0           # partials look back at most this far
 MAX_BUFFER_S = 120             # backstop against unbounded growth
+
+# How much new audio to accumulate before re-running VAD.
+#
+# This is the difference between working and not. get_speech_timestamps scans
+# the whole buffer, so running it per 20 ms frame is O(n²) in utterance length:
+# with continuous speech the buffer grows toward MAX_SPEECH_S and VAD re-scans
+# all of it 50 times a second, until the worker falls permanently behind and
+# commits nothing. Scanning ~2.5 times a second is ~20x less work and still
+# detects an end-of-utterance well inside the hangover window.
+VAD_INTERVAL_MS = 400
 
 
 def emit(obj: dict) -> None:
@@ -61,11 +72,13 @@ class ChannelBuffer:
     name: str
     audio: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float32))
     consumed_samples: int = 0      # samples dropped from the front so far
+    unscanned_samples: int = 0     # appended since VAD last ran
     last_partial_at: float = 0.0
     last_partial_text: str = ""
 
     def append(self, pcm: np.ndarray) -> None:
         self.audio = np.concatenate((self.audio, pcm)) if self.audio.size else pcm
+        self.unscanned_samples += pcm.size
 
     def drop_front(self, n: int) -> None:
         n = min(n, self.audio.size)
@@ -84,6 +97,11 @@ def _enable_bundled_cuda_libs() -> None:
     site-packages rather than on PATH, and Windows will not search there, so
     CTranslate2 fails at the first matrix multiply with a missing-DLL error
     even though the package is installed.
+
+    Both mechanisms are needed. `os.add_dll_directory` only affects loads that
+    opt into the user search path; CTranslate2 resolves the CUDA libraries with
+    a plain LoadLibrary, which consults PATH and ignores added directories —
+    so PATH is the one that actually fixes it here.
     """
     if sys.platform != "win32":
         return
@@ -97,16 +115,24 @@ def _enable_bundled_cuda_libs() -> None:
     import os
     from pathlib import Path
 
+    added: list[str] = []
     for root in roots:
         nvidia = Path(root) / "nvidia"
         if not nvidia.is_dir():
             continue
-        for bin_dir in nvidia.glob("*/bin"):
+        for bin_dir in sorted(nvidia.glob("*/bin")):
+            if not any(bin_dir.glob("*.dll")):
+                continue
+            path = str(bin_dir)
             try:
-                os.add_dll_directory(str(bin_dir))
-                log(f"added CUDA library directory {bin_dir}")
+                os.add_dll_directory(path)
             except OSError:
                 pass
+            added.append(path)
+
+    if added:
+        os.environ["PATH"] = os.pathsep.join([*added, os.environ.get("PATH", "")])
+        log(f"enabled {len(added)} bundled CUDA library directories")
 
 
 class Engine:
@@ -194,9 +220,14 @@ class Engine:
 
         float16 is unsupported on pre-Volta cards (compute capability < 7.0),
         and requesting it there fails the load outright instead of degrading.
+
+        int8_float32 is preferred over float32 as the pre-Volta fallback: those
+        cards do have int8 (DP4A), it is faster than float32 there, and it uses
+        roughly a quarter of the memory — which decides whether a larger model
+        fits at all on a 4 GB card.
         """
         preference = (
-            ("float16", "int8_float16", "bfloat16", "float32", "int8")
+            ("float16", "int8_float16", "bfloat16", "int8_float32", "float32", "int8")
             if device == "cuda"
             else ("int8", "int8_float32", "float32")
         )
@@ -230,6 +261,11 @@ class Engine:
             buf.drop_front(overflow)
             log(f"{channel}: dropped {overflow / SAMPLE_RATE:.1f}s of buffered audio", "warn")
 
+        # Throttle: VAD scans the whole buffer, so running it per frame is
+        # quadratic in utterance length. See VAD_INTERVAL_MS.
+        if buf.unscanned_samples < VAD_INTERVAL_MS * SAMPLE_RATE / 1000:
+            return
+        buf.unscanned_samples = 0
         self.process(buf, final=False)
 
     def process(self, buf: ChannelBuffer, final: bool) -> None:
@@ -275,7 +311,15 @@ class Engine:
         if now - buf.last_partial_at < PARTIAL_INTERVAL_S:
             return
         buf.last_partial_at = now
-        self._transcribe(buf, in_progress, start_sample=start_sample, partial=True)
+
+        # Bound the work: re-transcribing a growing utterance every 2s is
+        # quadratic too. Partials are throwaway previews, so looking back a
+        # few seconds is enough — the committed segment covers the whole span.
+        max_partial = int(MAX_PARTIAL_S * SAMPLE_RATE)
+        offset = max(0, in_progress.size - max_partial)
+        self._transcribe(
+            buf, in_progress[offset:], start_sample=start_sample + offset, partial=True
+        )
 
     def _transcribe(
         self, buf: ChannelBuffer, audio: np.ndarray, start_sample: int, partial: bool

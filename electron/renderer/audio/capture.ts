@@ -1,38 +1,13 @@
 import { PIPELINE, type AudioChannel } from '@shared/types'
+// Same-origin asset URL. Must not be a blob: URL — the overlay's CSP is
+// `script-src 'self'` and would block it. See pcm-worklet.js.
+import workletUrl from './pcm-worklet.js?url'
 
 /**
  * Device capture. Lives in the renderer because getDisplayMedia and
  * getUserMedia are renderer-only APIs; it downsamples to the pipeline format
  * and hands frames to main. It never touches the network.
  */
-
-const WORKLET_SOURCE = `
-class PCMWorklet extends AudioWorkletProcessor {
-  constructor(options) {
-    super()
-    this.frame = options.processorOptions.frameSamples
-    this.buf = new Int16Array(this.frame)
-    this.n = 0
-  }
-  process(inputs) {
-    const input = inputs[0]
-    const ch = input && input[0]
-    if (!ch) return true
-    for (let i = 0; i < ch.length; i++) {
-      // Clamp before scaling: values outside [-1,1] wrap around when cast.
-      const s = Math.max(-1, Math.min(1, ch[i]))
-      this.buf[this.n++] = s < 0 ? s * 0x8000 : s * 0x7fff
-      if (this.n === this.frame) {
-        const copy = this.buf.slice()
-        this.port.postMessage(copy.buffer, [copy.buffer])
-        this.n = 0
-      }
-    }
-    return true
-  }
-}
-registerProcessor('pcm-worklet', PCMWorklet)
-`
 
 interface ChannelCapture {
   stream: MediaStream
@@ -71,12 +46,13 @@ export class CaptureController {
     // Asking for a 16 kHz context makes Chromium resample the device's native
     // 44.1/48 kHz for us, so there is no hand-rolled resampler to get wrong.
     const context = new AudioContext({ sampleRate: PIPELINE.sampleRate })
-    const blob = new Blob([WORKLET_SOURCE], { type: 'application/javascript' })
-    const url = URL.createObjectURL(blob)
     try {
-      await context.audioWorklet.addModule(url)
-    } finally {
-      URL.revokeObjectURL(url)
+      await context.audioWorklet.addModule(workletUrl)
+    } catch (err) {
+      await context.close().catch(() => undefined)
+      // addModule rejects with a bare AbortError that reads exactly like a
+      // capture abort, so name the real failure here.
+      throw new Error(`audio worklet failed to load from ${workletUrl}: ${(err as Error).message}`)
     }
 
     const source = context.createMediaStreamSource(stream)
@@ -117,18 +93,16 @@ export class CaptureController {
 }
 
 async function captureSystemAudio(): Promise<MediaStream> {
-  // Chromium rejects an audio-only getDisplayMedia request, so ask for video
-  // and drop the track the moment we have it. Main's display-media handler
-  // returns loopback audio with no video source attached.
+  // Audio only. This must stay in step with main's display-media handler: it
+  // supplies no video source, so requesting video here fails with "Video was
+  // requested, but no video stream was provided". Asking for `video: false`
+  // also means the screen is never captured at all.
   const stream = await navigator.mediaDevices.getDisplayMedia({
     audio: true,
-    video: true,
+    video: false,
   })
-  for (const track of stream.getVideoTracks()) {
-    track.stop()
-    stream.removeTrack(track)
-  }
   if (stream.getAudioTracks().length === 0) {
+    for (const track of stream.getTracks()) track.stop()
     throw new Error('no-loopback-audio')
   }
   return stream
