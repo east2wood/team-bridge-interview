@@ -5,7 +5,7 @@ import { child } from '../logger'
 const log = child('teambridge')
 
 /** Health endpoint appended to the configured base URL. */
-const HEALTH_PATH = '/api/health'
+const HEALTH_PATH = '/health'
 const TIMEOUT_MS = 8000
 
 /**
