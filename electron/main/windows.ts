@@ -86,6 +86,75 @@ function loadOverlay(win: BrowserWindow, attempt = 0): void {
   })
 }
 
+let mainWindow: BrowserWindow | null = null
+
+export function getMainWindow(): BrowserWindow | null {
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+}
+
+/**
+ * The Live Interview window: the app's primary surface.
+ *
+ * Capture deliberately does not live here. getDisplayMedia is renderer-only,
+ * and this window can be closed, so the overlay — which is created once and
+ * only ever hidden — stays the capture host. This window is a view and a set
+ * of controls over session state held in main.
+ */
+export function showMain(): BrowserWindow {
+  const existing = getMainWindow()
+  if (existing) {
+    if (existing.isMinimized()) existing.restore()
+    existing.show()
+    existing.focus()
+    return existing
+  }
+
+  const win = new BrowserWindow({
+    width: 1120,
+    height: 720,
+    minWidth: 900,
+    minHeight: 560,
+    show: false,
+    title: 'TeamBridge Assist',
+    autoHideMenuBar: true,
+    backgroundColor: '#111217',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  })
+
+  win.setMenuBarVisibility(false)
+  win.once('ready-to-show', () => win.show())
+
+  // Minimising is the documented way into floating capture mode: the small
+  // overlay takes over rather than the app disappearing to the taskbar.
+  // The event fires after the window is already minimised, so hiding is what
+  // takes it off the taskbar; showMain() restores before showing.
+  win.on('minimize', () => {
+    win.hide()
+    showOverlay()
+  })
+
+  win.on('closed', () => {
+    mainWindow = null
+  })
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+
+  const devUrl = process.env['ELECTRON_RENDERER_URL']
+  if (devUrl) void win.loadURL(`${devUrl}/live.html`)
+  else void win.loadFile(join(__dirname, '../renderer/live.html'))
+
+  mainWindow = win
+  return win
+}
+
 let settingsWindow: BrowserWindow | null = null
 
 /**

@@ -193,9 +193,10 @@ function Footer({ recording, finished }: { recording: boolean; finished: boolean
           <button onClick={() => window.tb.startSession()}>Record</button>
         )}
         {finished && <button onClick={() => void copy()}>{copied ?? 'Copy'}</button>}
-        <button className="ghost" onClick={() => window.tb.dismiss()}>
-          Hide
+        <button className="ghost" onClick={() => window.tb.openMain()} title="Open the full window">
+          Expand
         </button>
+        <button onClick={() => window.tb.dismiss()}>Hide</button>
       </div>
     </footer>
   )

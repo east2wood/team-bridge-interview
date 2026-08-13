@@ -5,6 +5,7 @@ import type {
   CaptureCommand,
   ConnectionTestResult,
   EngineStatus,
+  LevelPayload,
   Partial as PartialText,
   SecretsInfo,
   Segment,
@@ -34,7 +35,13 @@ const api = {
   onPartial: (cb: (p: PartialText) => void) => subscribe(IPC.onPartial, cb),
   onSegment: (cb: (s: Segment) => void) => subscribe(IPC.onSegment, cb),
   onEngineStatus: (cb: (s: EngineStatus) => void) => subscribe(IPC.onEngineStatus, cb),
-  onNotice: (cb: (n: Notice) => void) => subscribe(IPC.onNotice, cb),
+  onNotice: (cb: (n: Notice | null) => void) => subscribe(IPC.onNotice, cb),
+  onLevel: (cb: (l: LevelPayload) => void) => subscribe(IPC.onLevel, cb),
+  onBusy: (cb: (transcribing: boolean) => void) => subscribe(IPC.onBusy, cb),
+
+  reportLevel: (payload: LevelPayload) => ipcRenderer.send(IPC.captureLevel, payload),
+  openMain: () => ipcRenderer.send(IPC.mainOpen),
+  minimiseToOverlay: () => ipcRenderer.send(IPC.mainMinimise),
 
   sendFrame: (channel: AudioChannel, pcm: ArrayBuffer) =>
     ipcRenderer.send(IPC.captureFrame, channel, pcm),

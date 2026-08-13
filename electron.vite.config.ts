@@ -40,6 +40,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           overlay: resolve('electron/renderer/index.html'),
+          live: resolve('electron/renderer/live.html'),
           settings: resolve('electron/renderer/settings.html'),
         },
       },

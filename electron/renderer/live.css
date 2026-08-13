@@ -1,0 +1,306 @@
+@import './theme.css';
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+}
+
+.live {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ------------------------------- top bar ------------------------------ */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.topbar__spacer {
+  margin-left: auto;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.badge .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.badge--listening .dot {
+  background: var(--live);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.badge--error {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge--listening .dot {
+    animation: none;
+  }
+}
+
+.elapsed {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* ------------------------------- panes -------------------------------- */
+
+.live__body {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 300px;
+  min-height: 0;
+}
+
+.pane {
+  padding: 14px 16px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pane--session {
+  border-right: 1px solid var(--border);
+}
+
+.pane--assist {
+  border-left: 1px solid var(--border);
+}
+
+.pane h2 {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 14px;
+}
+
+.pane__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.pane__head h2 {
+  margin: 0;
+}
+
+.grow {
+  margin-left: auto;
+}
+
+/* On a narrow window the assistance pane is the first thing to go: the
+   conversation is what the user is actually reading. */
+@media (max-width: 1000px) {
+  .live__body {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+  .pane--assist {
+    display: none;
+  }
+}
+
+/* ------------------------------ session ------------------------------- */
+
+.field {
+  display: block;
+  margin-bottom: 14px;
+}
+
+.field__label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  width: 100%;
+}
+
+.device {
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+
+.meterbox {
+  margin-bottom: 16px;
+}
+
+.meter {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 34px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  margin-bottom: 6px;
+}
+
+.meter__bar {
+  flex: 1 1 auto;
+  min-height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  transition: height 90ms linear;
+}
+
+.capture {
+  width: 100%;
+  padding: 11px;
+  font-size: 14px;
+  font-weight: 650;
+  margin-top: auto;
+}
+
+.capture--stop {
+  border-color: var(--error-border);
+  background: var(--error-bg);
+}
+
+.small {
+  font-size: 12px;
+}
+
+.warn {
+  color: var(--live);
+}
+
+/* ---------------------------- conversation ---------------------------- */
+
+.chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--control);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.transcript {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  user-select: text;
+}
+
+.turn {
+  margin-bottom: 14px;
+}
+
+.turn header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.turn p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.turn--partial p {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.who {
+  font-weight: 700;
+}
+
+.who--system {
+  color: var(--tag-system);
+}
+
+.who--microphone {
+  color: var(--tag-mic);
+}
+
+.unsure {
+  border-left: 2px solid var(--error-border);
+  padding-left: 8px;
+}
+
+.cursor {
+  color: var(--muted);
+  margin: 0;
+}
+
+.jump {
+  align-self: center;
+  margin-top: 8px;
+}
+
+.notice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.notice--warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+}
+
+.notice--error {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+
+/* ----------------------------- assistance ----------------------------- */
+
+.pane--assist p {
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+
+.pane--assist code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  word-break: break-all;
+}

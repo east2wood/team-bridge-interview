@@ -324,6 +324,10 @@ class Engine:
     def _transcribe(
         self, buf: ChannelBuffer, audio: np.ndarray, start_sample: int, partial: bool
     ) -> None:
+        # Tell the app a final segment is being worked on, so the UI can say
+        # "1 segment transcribing" instead of looking idle mid-sentence.
+        if not partial:
+            emit({"type": "busy", "transcribing": True})
         try:
             segments, info = self.model.transcribe(
                 audio,
@@ -337,6 +341,9 @@ class Engine:
         except Exception as err:  # noqa: BLE001 - a bad chunk must not kill the worker
             emit({"type": "error", "msg": f"transcription failed: {err}"})
             return
+        finally:
+            if not partial:
+                emit({"type": "busy", "transcribing": False})
 
         text = " ".join(s.text.strip() for s in segments).strip()
         if not text:

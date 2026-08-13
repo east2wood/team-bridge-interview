@@ -2,6 +2,36 @@
 
 export type AudioChannel = 'system' | 'microphone'
 
+/** What the user picks in the UI; channels are derived from it. */
+export type AudioSource = 'system' | 'microphone' | 'both'
+
+export function channelsFor(source: AudioSource): AudioChannel[] {
+  if (source === 'both') return ['system', 'microphone']
+  return [source]
+}
+
+export const SOURCE_LABELS: Record<AudioSource, string> = {
+  system: 'System Audio',
+  microphone: 'Microphone',
+  both: 'System Audio + Microphone',
+}
+
+/** Audio level for the meter, sampled far below frame rate. */
+export interface LevelPayload {
+  channel: AudioChannel
+  rms: number
+}
+
+/**
+ * How long the capture may stay below the silence floor before the UI says so.
+ * Silence is legitimate — nobody is talking — but eight seconds of nothing
+ * usually means the wrong output device, not a quiet room.
+ */
+export const NO_AUDIO_TIMEOUT_MS = 8000
+
+/** RMS below this counts as silence. Speech sits orders of magnitude above it. */
+export const SILENCE_RMS = 0.002
+
 export type SessionState =
   | 'idle'
   | 'starting'
@@ -96,7 +126,7 @@ export interface Settings {
   serverUrl: string
   hotkey: string
   hotkeyMode: 'toggle' | 'push-to-talk'
-  microphoneEnabled: boolean
+  audioSource: AudioSource
   language: string // 'auto' or an ISO code
   model: WhisperModel
   gpu: 'auto' | 'off'
@@ -114,7 +144,7 @@ export const DEFAULT_SETTINGS: Settings = {
   serverUrl: '',
   hotkey: 'Control+Shift+Space',
   hotkeyMode: 'toggle',
-  microphoneEnabled: false,
+  audioSource: 'system',
   language: 'auto',
   model: 'turbo',
   gpu: 'auto',

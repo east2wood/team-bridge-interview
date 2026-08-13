@@ -13,9 +13,12 @@ import {
 } from 'electron'
 import {
   MODEL_LABELS,
+  SOURCE_LABELS,
   WHISPER_MODELS,
   type AudioChannel,
+  type AudioSource,
   type CaptureCommand,
+  type LevelPayload,
   type SecretsInfo,
   type Settings,
   type WhisperModel,
@@ -31,9 +34,11 @@ import { registerHotkey, unregisterAll } from './hotkeys'
 import { testConnection, normaliseUrl } from '@services/teambridge/connection'
 import {
   createOverlay,
+  getMainWindow,
   getOverlay,
   getSettingsWindow,
   hideOverlay,
+  showMain,
   showOverlay,
   showSettings,
 } from './windows'
@@ -50,7 +55,7 @@ let lastFinishedSessionId: string | null = null
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => showOverlay())
+  app.on('second-instance', () => showMain())
   void app.whenReady().then(bootstrap)
 }
 
@@ -69,7 +74,8 @@ async function bootstrap(): Promise<void> {
   wireEvents()
   registerIpc()
   applyTheme()
-  createOverlay()
+  createOverlay() // capture host: created once, only ever hidden
+  showMain()
   createTray()
   applyHotkey()
 
@@ -125,16 +131,26 @@ function whisperOptions() {
   }
 }
 
-function wireEvents(): void {
-  const send = (channel: string, payload?: unknown) => {
-    const win = getOverlay()
+/** Broadcast to every open window: overlay, Live Interview, and settings. */
+function send(channel: string, payload?: unknown): void {
+  for (const win of [getOverlay(), getMainWindow(), getSettingsWindow()]) {
     if (win && !win.webContents.isDestroyed()) win.webContents.send(channel, payload)
   }
+}
 
+function wireEvents(): void {
   sessions.on('state', (payload) => {
     send(IPC.onSessionState, payload)
     updateTray()
   })
+  sessions.on('busy', (transcribing: boolean) => send(IPC.onBusy, transcribing))
+  sessions.on('no-audio', (quietForMs: number) =>
+    send(IPC.onNotice, {
+      level: 'warn',
+      message: `No audio detected for ${Math.round(quietForMs / 1000)} seconds. Check that audio is playing to the device being captured.`,
+    }),
+  )
+  sessions.on('audio-restored', () => send(IPC.onNotice, null))
   sessions.on('partial', (payload) => send(IPC.onPartial, payload))
   sessions.on('segment', (payload) => send(IPC.onSegment, payload))
   sessions.on('capture-stop', () =>
@@ -165,6 +181,19 @@ function registerIpc(): void {
   // Hot path: ~50 messages/second/channel while recording.
   ipcMain.on(IPC.captureFrame, (_e, channel: AudioChannel, buffer: ArrayBuffer) => {
     sessions.pushAudio(channel, new Int16Array(buffer))
+  })
+
+  // Levels arrive throttled from the capture host and fan out to every window
+  // so the meter works wherever the user is looking.
+  ipcMain.on(IPC.captureLevel, (_e, payload: LevelPayload) => {
+    sessions.noteLevel(payload.rms)
+    send(IPC.onLevel, payload)
+  })
+
+  ipcMain.on(IPC.mainOpen, () => showMain())
+  ipcMain.on(IPC.mainMinimise, () => {
+    getMainWindow()?.hide()
+    showOverlay()
   })
 
   ipcMain.handle(IPC.settingsGet, () => ({
@@ -351,6 +380,7 @@ function updateTray(): void {
         click: () => toggleSession(),
       },
       { type: 'separator' },
+      { label: 'Open TeamBridge Assist', click: () => showMain() },
       { label: 'Show overlay', click: () => showOverlay() },
       { label: 'Settings…', click: () => showSettings() },
       {
@@ -363,13 +393,18 @@ function updateTray(): void {
       },
       { type: 'separator' },
       {
-        label: 'Microphone',
-        type: 'checkbox',
-        checked: cfg.microphoneEnabled,
-        click: (item) => {
-          settings().patch({ microphoneEnabled: item.checked })
-          updateTray()
-        },
+        label: 'Source',
+        submenu: (['system', 'microphone', 'both'] as AudioSource[]).map((source) => ({
+          label: SOURCE_LABELS[source],
+          type: 'radio' as const,
+          checked: cfg.audioSource === source,
+          enabled: !recording,
+          click: () => {
+            settings().patch({ audioSource: source })
+            updateTray()
+            send(IPC.onSessionState, sessions.snapshot())
+          },
+        })),
       },
       {
         label: 'Copy automatically when a recording ends',

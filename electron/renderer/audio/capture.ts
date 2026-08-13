@@ -64,9 +64,20 @@ export class CaptureController {
       processorOptions: { frameSamples: PIPELINE.frameSamples },
     })
 
+    let lastLevelAt = 0
     node.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
       const buffer = event.data
-      this.onLevel(channel, rmsOf(new Int16Array(buffer)))
+      const rms = rmsOf(new Int16Array(buffer))
+      this.onLevel(channel, rms)
+
+      // Frames arrive 50x a second; a meter needs ~15. Throttle before
+      // crossing IPC so the level does not compete with the audio itself.
+      const now = performance.now()
+      if (now - lastLevelAt >= 66) {
+        lastLevelAt = now
+        window.tb.reportLevel({ channel, rms })
+      }
+
       window.tb.sendFrame(channel, buffer)
     }
 

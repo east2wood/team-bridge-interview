@@ -24,7 +24,16 @@ export const IPC = {
   connectionTest: 'connection:test',
   hotkeyProbe: 'hotkey:probe',
 
+  // window management
+  mainOpen: 'main:open',
+  mainMinimise: 'main:minimise',
+
+  // renderer → main (capture host only)
+  captureLevel: 'capture:level',
+
   // main → renderer
+  onLevel: 'capture:on-level',
+  onBusy: 'engine:busy',
   onCaptureCommand: 'capture:command',
   onSessionState: 'session:state',
   onPartial: 'transcript:partial',

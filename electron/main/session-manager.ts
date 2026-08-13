@@ -1,10 +1,13 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
-import type {
-  AudioChannel,
-  Segment,
-  SessionState,
-  SessionStatePayload,
+import {
+  channelsFor,
+  NO_AUDIO_TIMEOUT_MS,
+  SILENCE_RMS,
+  type AudioChannel,
+  type Segment,
+  type SessionState,
+  type SessionStatePayload,
 } from '@shared/types'
 import { child } from '@services/logger'
 import { settings } from '@services/settings/settings'
@@ -27,6 +30,10 @@ export class SessionManager extends EventEmitter {
   private startedAt: number | null = null
   private language: string | null = null
   private failureReason: string | undefined
+  private transcribing = false
+  private lastSoundAt = 0
+  private silenceTimer: NodeJS.Timeout | null = null
+  private silent = false
 
   constructor(private whisper: WhisperService) {
     super()
@@ -37,6 +44,50 @@ export class SessionManager extends EventEmitter {
     whisper.on('fatal', (reason: string) => {
       if (this.state === 'recording' || this.state === 'starting') this.fail(reason)
     })
+    whisper.on('busy', (transcribing: boolean) => {
+      this.transcribing = transcribing
+      this.emit('busy', transcribing)
+    })
+  }
+
+  isTranscribing(): boolean {
+    return this.transcribing
+  }
+
+  /**
+   * Records that audio is actually arriving. Silence is legitimate, but a
+   * long stretch of it usually means the wrong output device rather than a
+   * quiet room — so say so instead of producing an empty transcript.
+   */
+  noteLevel(rms: number): void {
+    if (this.state !== 'recording') return
+    if (rms < SILENCE_RMS) return
+
+    this.lastSoundAt = Date.now()
+    if (this.silent) {
+      this.silent = false
+      this.emit('audio-restored')
+    }
+  }
+
+  private startSilenceWatchdog(): void {
+    this.stopSilenceWatchdog()
+    this.lastSoundAt = Date.now()
+    this.silent = false
+    this.silenceTimer = setInterval(() => {
+      if (this.state !== 'recording' || this.silent) return
+      const quietFor = Date.now() - this.lastSoundAt
+      if (quietFor >= NO_AUDIO_TIMEOUT_MS) {
+        this.silent = true
+        this.emit('no-audio', quietFor)
+      }
+    }, 1000)
+  }
+
+  private stopSilenceWatchdog(): void {
+    if (this.silenceTimer) clearInterval(this.silenceTimer)
+    this.silenceTimer = null
+    this.silent = false
   }
 
   snapshot(): SessionStatePayload {
@@ -85,9 +136,7 @@ export class SessionManager extends EventEmitter {
     }
 
     const cfg = settings().all()
-    const channels: AudioChannel[] = cfg.microphoneEnabled
-      ? ['system', 'microphone']
-      : ['system']
+    const channels = channelsFor(cfg.audioSource)
 
     this.startedAt = Date.now()
     this.language = cfg.language === 'auto' ? null : cfg.language
@@ -108,6 +157,7 @@ export class SessionManager extends EventEmitter {
   captureStarted(): void {
     if (this.state !== 'starting') return
     this.setState('recording')
+    this.startSilenceWatchdog()
   }
 
   captureFailed(reason: string): void {
@@ -152,6 +202,7 @@ export class SessionManager extends EventEmitter {
     const sessionId = this.sessionId
     if (!sessionId) return null
 
+    this.stopSilenceWatchdog()
     this.setState('stopping')
     this.emit('capture-stop')
 
@@ -182,6 +233,7 @@ export class SessionManager extends EventEmitter {
 
   private fail(reason: string): void {
     log.error({ reason }, 'session failed')
+    this.stopSilenceWatchdog()
     if (this.sessionId && settings().get('autoSave')) {
       // Do not leave a half-written session in history with nothing in it.
       repo.deleteIfEmpty(this.sessionId)

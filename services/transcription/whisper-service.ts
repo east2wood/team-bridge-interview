@@ -41,6 +41,7 @@ type WorkerMessage =
       confidence: number
       language: string
     }
+  | { type: 'busy'; transcribing: boolean }
   | { type: 'log'; level: string; msg: string }
   | { type: 'error'; msg: string; fatal?: boolean }
   | { type: 'flushed' }
@@ -187,6 +188,9 @@ export class WhisperService extends EventEmitter {
           confidence: msg.confidence,
           language: msg.language,
         } satisfies WorkerSegment)
+        break
+      case 'busy':
+        this.emit('busy', msg.transcribing)
         break
       case 'flushed':
         this.emit('flushed')
