@@ -116,7 +116,6 @@ export function InterviewDetail({
 /* ------------------------------ one turn ------------------------------- */
 
 function Turn({ turn }: { turn: CaptureTurn }) {
-  const [showRaw, setShowRaw] = useState(false)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(turn.question ?? '')
 
@@ -130,22 +129,35 @@ function Turn({ turn }: { turn: CaptureTurn }) {
     )
   }
 
-  // Worth offering only when the two actually differ.
-  const differs = turn.transcript.trim() && turn.transcript.trim() !== turn.question?.trim()
+  const context = turn.context?.text?.trim()
 
   return (
-    <>
-      <article className="msg">
-        <header className="msg__who">
-          <span>Interviewer</span>
-          <span className="muted small">{clock(turn.startedAt)}</span>
+    <article className="turn">
+      <header className="turn__time muted small">{clock(turn.startedAt)}</header>
+
+      {/* Evidence, deliberately quiet: it is what the question and answer were
+          built from, there to be checked rather than read. */}
+      {context && (
+        <section className="block block--context">
+          <h3>Context</h3>
+          <p>{context}</p>
+          {turn.context && (
+            <p className="range muted small">
+              segments {turn.context.fromSequence}–{turn.context.throughSequence}
+            </p>
+          )}
+        </section>
+      )}
+
+      <section className="block block--question">
+        <h3>
+          Question
           {turn.questionConfident === false && (
             <span className="tagline" title="No clear question was found; this is the tail of what was said.">
               unclear
             </span>
           )}
-        </header>
-
+        </h3>
         {editing ? (
           <div className="row">
             <input value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck={false} />
@@ -161,11 +173,10 @@ function Turn({ turn }: { turn: CaptureTurn }) {
             <button onClick={() => setEditing(false)}>Cancel</button>
           </div>
         ) : (
-          <p className="msg__text">{turn.question}</p>
+          <p className="question__text">{turn.question}</p>
         )}
-
-        <div className="msg__tools">
-          {!editing && (
+        {!editing && (
+          <div className="msg__tools">
             <button
               className="link"
               onClick={() => {
@@ -175,26 +186,17 @@ function Turn({ turn }: { turn: CaptureTurn }) {
             >
               Edit
             </button>
-          )}
-          {differs && (
-            <button className="link" onClick={() => setShowRaw(!showRaw)}>
-              {showRaw ? 'Hide transcript' : 'View transcript'}
-            </button>
-          )}
-        </div>
+          </div>
+        )}
+      </section>
 
-        {showRaw && <p className="raw">{turn.transcript}</p>}
-      </article>
-
-      <article className="msg msg--assist">
-        <header className="msg__who">
-          <span>TeamBridge Assist</span>
-        </header>
+      <section className="block block--answer">
+        <h3>TeamBridge Assist</h3>
 
         {turn.status === 'generating' && !turn.answer && <p className="muted">Thinking…</p>}
 
         {turn.answer && (
-          <p className="msg__text answer">
+          <p className="answer">
             {turn.answer}
             {turn.status === 'generating' && <span className="caret" aria-hidden />}
           </p>
@@ -219,8 +221,8 @@ function Turn({ turn }: { turn: CaptureTurn }) {
             </button>
           )}
         </div>
-      </article>
-    </>
+      </section>
+    </article>
   )
 }
 
@@ -241,16 +243,23 @@ function Tail({ live, partial }: { live: LiveSessionState; partial: string }) {
         {/* What TeamBridge believes is being asked. Shown before Answer so the
             question is never a surprise — it is live state, not history, and
             only becomes part of the conversation once Answer is pressed. */}
-        {detected ? (
+        {/* Named Context because that is what it becomes: press Answer and
+            this exact text is frozen as the turn's evidence. */}
+        {heard ? (
+          <>
+            <span className="tail__sub muted small">Context</span>
+            <p className="muted tail__text">{heard}</p>
+          </>
+        ) : (
+          <p className="muted tail__text">Building context…</p>
+        )}
+
+        {detected && (
           <div className="detected">
             <span className="detected__label">Question detected</span>
             <p className="detected__text">{detected.text}</p>
           </div>
-        ) : (
-          <p className="muted tail__text">{heard || 'Building context…'}</p>
         )}
-
-        {detected && heard && <p className="muted tail__text">{heard}</p>}
       </div>
     )
   }

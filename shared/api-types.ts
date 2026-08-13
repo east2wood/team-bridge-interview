@@ -128,6 +128,21 @@ export interface CaptureTurn {
   endedAt?: number
   /** Interviewer speech captured during the turn, as transcribed. */
   transcript: string
+  /**
+   * What the answer was based on, frozen when Answer was pressed.
+   *
+   * Kept as evidence: the question is a normalisation of this, and without it
+   * a surprising question or answer has nothing to check against. The range is
+   * the segment window uploaded during the turn, so it can be reconciled with
+   * what the server stored.
+   */
+  context?: {
+    fromSequence: number
+    throughSequence: number
+    text: string
+  }
+  /** Where this turn's segment window opened; closed into `context` on Answer. */
+  fromSequence?: number
   question?: string
   /** False when the question was guessed from the tail rather than identified. */
   questionConfident?: boolean

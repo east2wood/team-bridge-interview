@@ -500,3 +500,73 @@ button.sendbtn {
   min-width: 96px;
   padding: 10px 16px;
 }
+
+/* ------------------------------ a turn --------------------------------- */
+
+.turn {
+  margin-bottom: 38px;
+}
+
+.turn__time {
+  margin-bottom: 10px;
+}
+
+.block {
+  margin-bottom: 18px;
+}
+
+.block:last-child {
+  margin-bottom: 0;
+}
+
+.block h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.block p {
+  margin: 0;
+  line-height: 1.6;
+  user-select: text;
+}
+
+/* Context is evidence: present, checkable, and never competing with the
+   question for attention. */
+.block--context {
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+
+.block--context p {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.range {
+  margin-top: 4px !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The question is what the eye should land on first. */
+.question__text {
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.block--answer h3 {
+  color: var(--accent);
+}
+
+.tail__sub {
+  display: block;
+  margin-top: 8px;
+}

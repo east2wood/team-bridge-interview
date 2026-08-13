@@ -230,6 +230,15 @@ export class InterviewSession extends EventEmitter {
     // answer beats none if the server is struggling.
     await this.uploader.flush(UPLOAD_GRACE_MS)
 
+    // Freeze what this answer is based on before anything else can change it.
+    // The next turn starts collecting immediately afterwards, so this is the
+    // only moment the window is unambiguous.
+    turn.context = {
+      fromSequence: turn.fromSequence ?? 1,
+      throughSequence: this.sequence,
+      text: turn.transcript,
+    }
+
     // TeamBridge's detection wins when it has one; the local extractor covers
     // the case where nothing has been detected yet.
     const detected = this.detectedQuestion
@@ -377,6 +386,8 @@ export class InterviewSession extends EventEmitter {
       index: this.turns.length + 1,
       startedAt: Date.now(),
       transcript: '',
+      // The next segment uploaded belongs to this turn.
+      fromSequence: this.sequence + 1,
       answer: '',
       status: 'recording',
     }
