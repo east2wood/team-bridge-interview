@@ -1,11 +1,18 @@
 import { net } from 'electron'
-import type { ConnectionTestResult } from '@shared/types'
+import type { ConnectionTestResult, Identity } from '@shared/types'
 import { child } from '../logger'
 
 const log = child('teambridge')
 
-/** Health endpoint appended to the configured base URL. */
-const HEALTH_PATH = '/health'
+/**
+ * Identity endpoint appended to the configured base URL.
+ *
+ * Not /health: that answers without authentication, so it proves the host is
+ * up and nothing about the token. A reply naming the holder has tested the
+ * URL, the token, and which team the app is pointed at — and a 401 has tested
+ * it the other way. The API has no /test_connection for exactly this reason.
+ */
+const IDENTITY_PATH = '/api/v1/assist/me'
 const TIMEOUT_MS = 8000
 
 /**
@@ -26,9 +33,13 @@ export async function testConnection(
 
   let url: URL
   try {
-    url = new URL(HEALTH_PATH, `${base}/`)
+    url = new URL(IDENTITY_PATH, `${base}/`)
   } catch {
     return { ok: false, message: `"${rawUrl}" is not a valid URL.` }
+  }
+
+  if (!token) {
+    return { ok: false, message: 'Add an API token: the server cannot say who you are without one.' }
   }
 
   const insecure = url.protocol === 'http:' && !isLoopback(url.hostname)
@@ -48,12 +59,20 @@ export async function testConnection(
     const latencyMs = Date.now() - started
 
     if (response.ok) {
+      // Naming the holder is the actual test result; the status code alone
+      // would not distinguish a working token from a server that answers
+      // everything.
+      const body = (await response.json().catch(() => null)) as { data?: Identity } | null
+      const identity = body?.data
       return {
         ok: true,
         status: response.status,
         latencyMs,
         insecure,
-        message: `Connected in ${latencyMs} ms.`,
+        identity,
+        message: identity
+          ? `Connected as ${identity.name} · ${identity.team.name} (${latencyMs} ms).`
+          : `Connected in ${latencyMs} ms.`,
       }
     }
 
@@ -93,9 +112,9 @@ function describeStatus(status: number, url: string): string {
   switch (status) {
     case 401:
     case 403:
-      return 'The server rejected the API token.'
+      return 'The server rejected the API token. Check that it is a current integration key.'
     case 404:
-      return `The server responded, but ${url} was not found. Check the URL.`
+      return `Reached the server, but ${url} is not there. Check the URL points at TeamBridge itself.`
     case 429:
       return 'The server is rate limiting this client. Try again shortly.'
     default:

@@ -101,6 +101,14 @@ export const MODEL_LABELS: Record<WhisperModel, string> = {
   'large-v3': 'large-v3 — ~3 GB, most accurate',
 }
 
+/** Who the configured token belongs to, as reported by the server. */
+export interface Identity {
+  id: number | string
+  name: string
+  email: string
+  team: { id: number | string; name: string }
+}
+
 /** Result of probing the configured TeamBridge server. */
 export interface ConnectionTestResult {
   ok: boolean
@@ -110,6 +118,8 @@ export interface ConnectionTestResult {
   latencyMs?: number
   /** True when the token would travel over plain http. */
   insecure?: boolean
+  /** Present on success: naming the holder proves the token, not just the host. */
+  identity?: Identity
 }
 
 /** What the renderer is allowed to know about stored secrets. */
