@@ -1,5 +1,13 @@
 @import './theme.css';
 
+/* Captured content sits slightly right, generated content slightly left: a
+   conversational direction the eye reads without bubbles or heavy fills.
+   48px is enough to register; more would eat the reading width that long
+   technical answers need. */
+:root {
+  --turn-offset: 48px;
+}
+
 html,
 body,
 #root {
@@ -310,6 +318,7 @@ button.link:hover {
 /* The live tail: current activity, always last. */
 .tail {
   padding: 4px 0 20px;
+  margin-left: var(--turn-offset);
 }
 
 .tail__label {
@@ -509,12 +518,14 @@ button.sendbtn {
 
 .turn__time {
   margin-bottom: 10px;
+  margin-left: var(--turn-offset);
 }
 
 /* What TeamBridge received. One box, because context and question are one
    captured turn — not two things that happen to be adjacent. */
 .source {
   position: relative;
+  margin-left: var(--turn-offset);
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -574,6 +585,7 @@ button.sendbtn {
    page is a stack of cards again. */
 .generated {
   margin-top: 18px;
+  margin-right: var(--turn-offset);
   padding: 0 2px;
 }
 
@@ -601,4 +613,10 @@ button.sendbtn {
 .tail__sub {
   display: block;
   margin-top: 8px;
+}
+
+@media (max-width: 760px) {
+  :root {
+    --turn-offset: 0px;
+  }
 }
