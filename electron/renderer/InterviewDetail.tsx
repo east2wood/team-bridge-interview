@@ -115,9 +115,17 @@ export function InterviewDetail({
 
 /* ------------------------------ one turn ------------------------------- */
 
+/**
+ * One answered turn: what TeamBridge received, then what it generated.
+ *
+ * Context and question share a single box because they are one thing — the
+ * captured turn as the server understood it. The answer sits outside it, open,
+ * so the page does not become a stack of cards.
+ */
 function Turn({ turn }: { turn: CaptureTurn }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(turn.question ?? '')
+  const [copied, setCopied] = useState<'source' | 'answer' | null>(null)
 
   if (turn.status === 'empty') {
     return (
@@ -131,33 +139,68 @@ function Turn({ turn }: { turn: CaptureTurn }) {
 
   const context = turn.context?.text?.trim()
 
+  const flash = (which: 'source' | 'answer') => {
+    setCopied(which)
+    setTimeout(() => setCopied(null), 1500)
+  }
+
+  const copySource = () => {
+    // Labelled, because pasted into a ticket or a message the two halves need
+    // to stay distinguishable.
+    const parts = [
+      context ? ['Context:', context].join('\n') : null,
+      turn.question ? ['Question:', turn.question].join('\n') : null,
+    ].filter(Boolean)
+    void navigator.clipboard.writeText(parts.join('\n\n'))
+    flash('source')
+  }
+
   return (
     <article className="turn">
       <header className="turn__time muted small">{clock(turn.startedAt)}</header>
 
-      {/* Evidence, deliberately quiet: it is what the question and answer were
-          built from, there to be checked rather than read. */}
-      {context && (
-        <section className="block block--context">
-          <h3>Context</h3>
-          <p>{context}</p>
+      <section className="source">
+        <div className="source__tools">
           {turn.context && (
-            <p className="range muted small">
-              segments {turn.context.fromSequence}–{turn.context.throughSequence}
-            </p>
+            <span className="muted small range">
+              {turn.context.fromSequence}–{turn.context.throughSequence}
+            </span>
           )}
-        </section>
-      )}
+          {!editing && (
+            <button
+              className="link"
+              onClick={() => {
+                setDraft(turn.question ?? '')
+                setEditing(true)
+              }}
+            >
+              Edit
+            </button>
+          )}
+          <button className="link" onClick={copySource}>
+            {copied === 'source' ? 'Copied' : 'Copy'}
+          </button>
+        </div>
 
-      <section className="block block--question">
-        <h3>
+        {context && (
+          <>
+            <h3>Context</h3>
+            <p className="context">{context}</p>
+          </>
+        )}
+
+        <h3 className="source__qlabel">
           Question
           {turn.questionConfident === false && (
-            <span className="tagline" title="No clear question was found; this is the tail of what was said.">
+            <span
+              className="tagline"
+              title="No clear question was found; this is the tail of what was said."
+            >
               unclear
             </span>
           )}
         </h3>
+
         {editing ? (
           <div className="row">
             <input value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck={false} />
@@ -173,25 +216,31 @@ function Turn({ turn }: { turn: CaptureTurn }) {
             <button onClick={() => setEditing(false)}>Cancel</button>
           </div>
         ) : (
-          <p className="question__text">{turn.question}</p>
-        )}
-        {!editing && (
-          <div className="msg__tools">
-            <button
-              className="link"
-              onClick={() => {
-                setDraft(turn.question ?? '')
-                setEditing(true)
-              }}
-            >
-              Edit
-            </button>
-          </div>
+          <p className="question">{turn.question}</p>
         )}
       </section>
 
-      <section className="block block--answer">
-        <h3>TeamBridge Assist</h3>
+      <section className="generated">
+        <header className="generated__head">
+          <h3>TeamBridge Assist</h3>
+          <span className="grow" />
+          {turn.answer && turn.status !== 'generating' && (
+            <button
+              className="link"
+              onClick={() => {
+                void navigator.clipboard.writeText(turn.answer)
+                flash('answer')
+              }}
+            >
+              {copied === 'answer' ? 'Copied' : 'Copy'}
+            </button>
+          )}
+          {turn.status === 'failed' && turn.error?.retryable && (
+            <button className="link" onClick={() => void window.tb.regenerate(turn.id)}>
+              Retry
+            </button>
+          )}
+        </header>
 
         {turn.status === 'generating' && !turn.answer && <p className="muted">Thinking…</p>}
 
@@ -208,19 +257,6 @@ function Turn({ turn }: { turn: CaptureTurn }) {
             {turn.answer ? ' The partial answer above was kept.' : ''}
           </p>
         )}
-
-        <div className="msg__tools">
-          {turn.answer && turn.status !== 'generating' && (
-            <button className="link" onClick={() => void navigator.clipboard.writeText(turn.answer)}>
-              Copy
-            </button>
-          )}
-          {turn.status === 'failed' && turn.error?.retryable && (
-            <button className="link" onClick={() => void window.tb.regenerate(turn.id)}>
-              Retry
-            </button>
-          )}
-        </div>
       </section>
     </article>
   )

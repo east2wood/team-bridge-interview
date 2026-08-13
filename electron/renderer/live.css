@@ -504,25 +504,24 @@ button.sendbtn {
 /* ------------------------------ a turn --------------------------------- */
 
 .turn {
-  margin-bottom: 38px;
+  margin-bottom: 42px;
 }
 
 .turn__time {
   margin-bottom: 10px;
 }
 
-.block {
-  margin-bottom: 18px;
+/* What TeamBridge received. One box, because context and question are one
+   captured turn — not two things that happen to be adjacent. */
+.source {
+  position: relative;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
 }
 
-.block:last-child {
-  margin-bottom: 0;
-}
-
-.block h3 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.source h3 {
   margin: 0 0 6px;
   font-size: 11px;
   font-weight: 700;
@@ -531,39 +530,72 @@ button.sendbtn {
   color: var(--muted);
 }
 
-.block p {
+.source__qlabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent) !important;
+}
+
+.source p {
   margin: 0;
-  line-height: 1.6;
   user-select: text;
 }
 
-/* Context is evidence: present, checkable, and never competing with the
-   question for attention. */
-.block--context {
-  padding-left: 12px;
-  border-left: 2px solid var(--border);
-}
-
-.block--context p {
+.source .context {
+  margin-bottom: 16px;
   color: var(--muted);
   font-size: 12.5px;
   line-height: 1.55;
+  white-space: pre-wrap;
 }
 
-.range {
-  margin-top: 4px !important;
-  font-variant-numeric: tabular-nums;
-}
-
-/* The question is what the eye should land on first. */
-.question__text {
-  font-size: 15px;
+/* The question is the thing to scan for. */
+.source .question {
+  font-size: 16px;
   font-weight: 650;
   line-height: 1.5;
 }
 
-.block--answer h3 {
+.source__tools {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.range {
+  font-variant-numeric: tabular-nums;
+}
+
+/* What TeamBridge generated. Deliberately unboxed: two cards per turn and the
+   page is a stack of cards again. */
+.generated {
+  margin-top: 18px;
+  padding: 0 2px;
+}
+
+.generated__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.generated__head h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--accent);
+}
+
+.generated p {
+  margin: 0;
+  line-height: 1.6;
 }
 
 .tail__sub {
