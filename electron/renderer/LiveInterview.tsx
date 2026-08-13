@@ -22,6 +22,10 @@ export function LiveInterview() {
   const [engine, setEngine] = useState<EngineStatus | null>(null)
   const [level, setLevel] = useState(0)
   const [notice, setNotice] = useState<Notice | null>(null)
+  // Provisional interviewer speech, shown but never sent. The turn's
+  // transcript stays committed-only so a half-heard phrase cannot become the
+  // question; without this the panel simply looked 2-3s behind the overlay.
+  const [partial, setPartial] = useState('')
 
   useEffect(() => {
     const off = [
@@ -29,6 +33,13 @@ export function LiveInterview() {
       window.tb.onEngineStatus(setEngine),
       window.tb.onLevel((l: LevelPayload) => setLevel(l.rms)),
       window.tb.onNotice(setNotice),
+      window.tb.onPartial((p) => {
+        if (p.channel === 'system') setPartial(p.text)
+      }),
+      // The committed segment supersedes whatever provisional text was showing.
+      window.tb.onSegment((s) => {
+        if (s.channel === 'system') setPartial('')
+      }),
     ]
     void window.tb.getLive().then(setLive)
     void window.tb.getSettings().then((s) => setEngine(s.engine))
@@ -36,7 +47,12 @@ export function LiveInterview() {
   }, [])
 
   useEffect(() => {
-    if (live?.status !== 'recording') setLevel(0)
+    if (live?.status !== 'recording') {
+      setLevel(0)
+      // A turn boundary ends the provisional text: anything still unresolved
+      // was either committed by the flush or is not coming.
+      setPartial('')
+    }
   }, [live?.status])
 
   if (!live) return <main className="live"><p className="muted">Loading…</p></main>
@@ -58,7 +74,7 @@ export function LiveInterview() {
       )}
 
       {live.interview ? (
-        <InterviewDetail live={live} level={level} />
+        <InterviewDetail live={live} level={level} partial={partial} />
       ) : (
         <InterviewList onOpen={(interview) => window.tb.selectInterview(interview)} />
       )}

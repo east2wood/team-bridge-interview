@@ -289,6 +289,12 @@ button.back {
   user-select: text;
 }
 
+/* Provisional text, superseded the moment the segment commits. */
+.provisional {
+  color: var(--muted);
+  font-style: italic;
+}
+
 .panel--answer .question {
   font-weight: 650;
 }

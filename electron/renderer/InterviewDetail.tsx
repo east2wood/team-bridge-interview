@@ -9,7 +9,16 @@ import { formatTime } from './InterviewList'
  * interviewer has said since the last turn is the question". Capture resumes
  * on its own shortly afterwards, while the answer is still streaming.
  */
-export function InterviewDetail({ live, level }: { live: LiveSessionState; level: number }) {
+export function InterviewDetail({
+  live,
+  level,
+  partial,
+}: {
+  live: LiveSessionState
+  level: number
+  /** Provisional interviewer speech: displayed, never part of the question. */
+  partial: string
+}) {
   const interview = live.interview
   if (!interview) return null
 
@@ -40,9 +49,13 @@ export function InterviewDetail({ live, level }: { live: LiveSessionState; level
       <section className="panel">
         <h2>Live Transcript</h2>
         <div className="panel__body transcript">
-          {live.activeTurn?.transcript ? (
-            <p>{live.activeTurn.transcript}</p>
-          ) : (
+          {live.activeTurn?.transcript && <p>{live.activeTurn.transcript}</p>}
+
+          {/* Marked as provisional because it is: Whisper revises it as the
+              phrase finishes, and it is not what gets sent. */}
+          {partial && <p className="provisional">{partial}</p>}
+
+          {!live.activeTurn?.transcript && !partial && (
             <p className="muted">
               {live.status === 'recording'
                 ? 'Listening…'
