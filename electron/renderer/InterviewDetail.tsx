@@ -73,6 +73,13 @@ export function InterviewDetail({
           </span>
         </div>
         <span className="grow" />
+        {live.upload.pending > 0 && (
+          <span className={`sync ${live.upload.failing ? 'sync--failing' : ''}`}>
+            {live.upload.failing
+              ? `${live.upload.reason ?? 'Sync failing'} · ${live.upload.pending} waiting`
+              : `Syncing ${live.upload.pending}`}
+          </span>
+        )}
         <StatusPill live={live} level={level} />
       </header>
 
@@ -247,14 +254,6 @@ function Tail({ live, partial }: { live: LiveSessionState; partial: string }) {
     )
   }
 
-  if (live.status === 'restart_pending') {
-    return (
-      <div className="tail">
-        <span className="tail__label">Listening again in a moment…</span>
-      </div>
-    )
-  }
-
   return null
 }
 
@@ -267,14 +266,6 @@ function Tail({ live, partial }: { live: LiveSessionState; partial: string }) {
  */
 function Composer({ live }: { live: LiveSessionState }) {
   const [text, setText] = useState('')
-  const [countdown, setCountdown] = useState(0)
-
-  useEffect(() => {
-    if (live.status !== 'restart_pending') return
-    setCountdown(Math.ceil(live.restartInMs / 1000))
-    const t = setInterval(() => setCountdown((n) => Math.max(0, n - 1)), 1000)
-    return () => clearInterval(t)
-  }, [live.status, live.restartInMs])
 
   const send = () => {
     if (!text.trim()) return
@@ -322,13 +313,9 @@ function Composer({ live }: { live: LiveSessionState }) {
         >
           {live.status === 'finalizing'
             ? 'Processing question…'
-            : live.status === 'restart_pending'
-              ? countdown > 0
-                ? `Listening again in ${countdown}s…`
-                : 'Listening again…'
-              : live.status === 'starting'
-                ? 'Starting…'
-                : 'Answer'}
+            : live.status === 'starting'
+              ? 'Starting…'
+              : 'Answer'}
         </button>
       </div>
     </footer>

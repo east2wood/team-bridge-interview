@@ -40,6 +40,17 @@ export interface CreateSessionInput {
   language?: string | null
 }
 
+/** One committed segment, as TeamBridge stores it. */
+export interface SegmentUpload {
+  /** Identity, not a counter: re-sending a sequence is a correction. */
+  sequence: number
+  text: string
+  startedAt: string
+  endedAt: string
+  confidence?: number
+  speaker?: 'interviewer' | 'candidate'
+}
+
 export interface AnswerRequest {
   question: string
   context?: string
@@ -130,13 +141,7 @@ export type TurnStatus =
  * isRestarting has states that cannot be reasoned about, and the restart is
  * exactly where they would go wrong.
  */
-export type LiveStatus =
-  | 'idle'
-  | 'starting'
-  | 'recording'
-  | 'finalizing'
-  | 'restart_pending'
-  | 'error'
+export type LiveStatus = 'idle' | 'starting' | 'recording' | 'finalizing' | 'error'
 
 export interface LiveSessionState {
   status: LiveStatus
@@ -146,7 +151,7 @@ export interface LiveSessionState {
   turnStartedAt: number | null
   activeTurn: CaptureTurn | null
   turns: CaptureTurn[]
-  /** Seconds until capture resumes, while restart_pending. */
-  restartInMs: number
+  /** Transcript sync, so an unreachable server is visible rather than silent. */
+  upload: { pending: number; failing: boolean; reason?: string }
   error?: string
 }

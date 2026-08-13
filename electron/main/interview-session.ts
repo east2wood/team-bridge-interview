@@ -11,19 +11,11 @@ import type { Segment } from '@shared/types'
 import type { TeamBridgeClient } from '@services/teambridge/teambridge-client'
 import { child } from '@services/logger'
 import { extractQuestion } from '@services/interview/question-extractor'
+import type { TranscriptUploader } from '@services/teambridge/transcript-uploader'
 import type { SessionManager } from './session-manager'
 import type { AnswerManager } from './answer-manager'
 
 const log = child('interview')
-
-/**
- * How long to wait before listening again after Answer.
- *
- * Long enough to miss the click and the shuffle around it, short enough that
- * the next question is not lost. Deliberately not a user setting: it is a
- * detail of the interaction, not a preference.
- */
-const RESTART_DELAY_MS = 1500
 
 /** Below this, the turn caught noise rather than a question worth sending. */
 const MIN_QUESTION_CHARS = 12
@@ -45,20 +37,42 @@ export class InterviewSession extends EventEmitter {
   private turns: CaptureTurn[] = []
   private activeTurn: CaptureTurn | null = null
   private turnStartedAt: number | null = null
-  private restartTimer: NodeJS.Timeout | null = null
-  private restartAt = 0
   private error: string | undefined
+  private sessionStartedAt: number | null = null
+  private sequence = 0
+  private upload = { pending: 0, failing: false } as {
+    pending: number
+    failing: boolean
+    reason?: string
+  }
 
   constructor(
     private readonly sessions: SessionManager,
     private readonly answers: AnswerManager,
+    private readonly uploader: TranscriptUploader,
     private readonly clientFor: () => TeamBridgeClient | null,
   ) {
     super()
 
+    uploader.on('status', (status: typeof this.upload) => {
+      this.upload = status
+      this.publish()
+    })
+
     // Interviewer speech belongs to the turn in progress. Attribution is
     // structural — the system channel is the other party — so no guessing.
     sessions.on('segment', (segment: Segment) => {
+      // TeamBridge gets the whole conversation; the question is built from the
+      // interviewer's half only.
+      this.uploader.enqueue({
+        sequence: (this.sequence += 1),
+        text: segment.text,
+        startedAt: new Date(this.startedAtEpoch(segment.startMs)).toISOString(),
+        endedAt: new Date(this.startedAtEpoch(segment.endMs)).toISOString(),
+        confidence: segment.confidence,
+        speaker: segment.channel === 'system' ? 'interviewer' : 'candidate',
+      })
+
       if (!this.activeTurn || segment.channel !== 'system') return
       this.activeTurn.transcript = `${this.activeTurn.transcript} ${segment.text}`.trim()
       this.publish()
@@ -75,7 +89,7 @@ export class InterviewSession extends EventEmitter {
       turnStartedAt: this.turnStartedAt,
       activeTurn: this.activeTurn,
       turns: this.turns,
-      restartInMs: this.restartAt ? Math.max(0, this.restartAt - Date.now()) : 0,
+      upload: this.upload,
       ...(this.error ? { error: this.error } : {}),
     }
   }
@@ -122,6 +136,8 @@ export class InterviewSession extends EventEmitter {
           transcriber: 'faster-whisper',
         })
         this.serverSessionId = created.id
+        this.sequence = 0
+        this.uploader.open(created.id)
         log.info({ serverSessionId: created.id }, 'opened TeamBridge session')
       } catch (err) {
         // Local capture is still worth having, so this is a warning rather
@@ -130,6 +146,7 @@ export class InterviewSession extends EventEmitter {
       }
     }
 
+    this.sessionStartedAt = Date.now()
     const started = this.sessions.start()
     if (!started.ok) {
       this.setStatus('error', started.reason)
@@ -157,9 +174,10 @@ export class InterviewSession extends EventEmitter {
     turn.status = 'transcribing'
     turn.endedAt = Date.now()
 
-    // Pause rather than stop: the local and server sessions span the whole
-    // interview, and only the turn ends here.
-    await this.sessions.pauseForTurn()
+    // Drain the worker without closing the devices. Capture continues
+    // throughout, so nothing is missed while the tail of the question is
+    // transcribed and there is no gap to restart from.
+    await this.sessions.flushPending()
 
     // The raw transcript stays on the turn; the question is what gets sent
     // and what the conversation shows.
@@ -182,7 +200,7 @@ export class InterviewSession extends EventEmitter {
       }
     } else {
       turn.status = 'generating'
-      // Not awaited: listening resumes while the answer streams.
+      // Not awaited: the interview carries on while the answer streams.
       void this.answers.ask({
         turnId: turn.id,
         sessionId: this.serverSessionId,
@@ -191,8 +209,9 @@ export class InterviewSession extends EventEmitter {
       })
     }
 
-    this.activeTurn = null
-    this.scheduleRestart()
+    // Straight into the next turn: listening never stopped.
+    this.beginTurn()
+    this.setStatus('recording')
   }
 
   /** Asks a question the user typed, on the same path as a captured one. */
@@ -248,7 +267,6 @@ export class InterviewSession extends EventEmitter {
   }
 
   async stopListening(): Promise<void> {
-    this.clearRestart()
     this.answers.cancel()
     if (this.activeTurn) {
       this.activeTurn.endedAt = Date.now()
@@ -256,6 +274,20 @@ export class InterviewSession extends EventEmitter {
       this.activeTurn = null
     }
     await this.sessions.stop()
+
+    // Flush before completing: the last question must not disappear because
+    // the session was marked ended while its transcript was still in flight.
+    await this.uploader.flush()
+    const client = this.clientFor()
+    if (client && this.serverSessionId !== null) {
+      try {
+        await client.endSession(this.serverSessionId)
+      } catch (err) {
+        log.warn({ err }, 'could not mark the TeamBridge session ended')
+      }
+    }
+    this.uploader.close()
+
     this.turnStartedAt = null
     this.setStatus('idle')
   }
@@ -271,29 +303,9 @@ export class InterviewSession extends EventEmitter {
 
   /* ------------------------------ internals ----------------------------- */
 
-  private scheduleRestart(): void {
-    this.clearRestart()
-    this.restartAt = Date.now() + RESTART_DELAY_MS
-    this.setStatus('restart_pending')
-
-    this.restartTimer = setTimeout(() => {
-      this.restartTimer = null
-      this.restartAt = 0
-      const channels = this.sessions.resumeCapture()
-      if (!channels) {
-        this.setStatus('error', 'Could not resume listening.')
-        return
-      }
-      this.emit('capture-start', channels)
-      this.beginTurn()
-      this.setStatus('recording')
-    }, RESTART_DELAY_MS)
-  }
-
-  private clearRestart(): void {
-    if (this.restartTimer) clearTimeout(this.restartTimer)
-    this.restartTimer = null
-    this.restartAt = 0
+  /** Segment offsets are session-relative; TeamBridge stores wall-clock times. */
+  private startedAtEpoch(offsetMs: number): number {
+    return (this.sessionStartedAt ?? Date.now()) + offsetMs
   }
 
   private beginTurn(): void {

@@ -455,3 +455,18 @@ button.answerbtn {
   padding: 10px 20px;
   font-weight: 650;
 }
+
+.sync {
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sync--failing {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--fg);
+}

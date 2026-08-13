@@ -198,27 +198,15 @@ export class SessionManager extends EventEmitter {
   }
 
   /**
-   * Ends a capture turn without ending the session.
+   * Transcribes whatever speech is buffered, without stopping capture.
    *
-   * Stops the devices and drains transcription, so that when this resolves
-   * every segment spoken during the turn has been committed. The local and
-   * server sessions stay open: only the turn ended.
+   * This is what makes a turn boundary free: the devices stay open and audio
+   * keeps arriving while the worker drains, so there is no dead gap in which
+   * the next question could be missed.
    */
-  async pauseForTurn(): Promise<void> {
+  async flushPending(): Promise<void> {
     if (this.state !== 'recording') return
-    this.stopSilenceWatchdog()
-    this.setState('finalising')
-    this.emit('capture-stop')
     await this.whisper.flush()
-  }
-
-  /** Reopens the devices for the next turn. Returns null if not paused. */
-  resumeCapture(): AudioChannel[] | null {
-    if (this.state !== 'finalising') return null
-    const channels = channelsFor(settings().get('audioSource'))
-    this.setState('recording')
-    this.startSilenceWatchdog()
-    return channels
   }
 
   async stop(): Promise<{ sessionId: string; empty: boolean } | null> {

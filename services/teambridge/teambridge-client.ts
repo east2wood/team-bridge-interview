@@ -4,6 +4,7 @@ import type {
   AssistSession,
   CreateSessionInput,
   Interview,
+  SegmentUpload,
 } from '@shared/api-types'
 import type { Identity } from '@shared/types'
 import { child } from '../logger'
@@ -62,6 +63,28 @@ export class TeamBridgeClient {
       language: input.language,
     })
     return toSession(raw)
+  }
+
+  /**
+   * Sends committed transcript segments. Accepts a batch; `sequence` is the
+   * identity of each, so re-sending one corrects it rather than duplicating.
+   */
+  async uploadSegments(sessionId: number, segments: SegmentUpload[]): Promise<void> {
+    await this.json('POST', `/api/v1/assist/sessions/${sessionId}/segments`, {
+      segments: segments.map((segment) => ({
+        sequence: segment.sequence,
+        text: segment.text,
+        started_at: segment.startedAt,
+        ended_at: segment.endedAt,
+        confidence: segment.confidence,
+        speaker: segment.speaker,
+      })),
+    })
+  }
+
+  /** Marks the run finished. Statuses are live / ended / failed. */
+  async endSession(sessionId: number, status: 'ended' | 'failed' = 'ended'): Promise<void> {
+    await this.json('PATCH', `/api/v1/assist/sessions/${sessionId}`, { status })
   }
 
   /**

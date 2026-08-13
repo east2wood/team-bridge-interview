@@ -30,6 +30,7 @@ import { closeDatabase, openDatabase } from '@services/history/db'
 import * as repo from '@services/history/session-repo'
 import { WhisperService } from '@services/transcription/whisper-service'
 import { TeamBridgeClient } from '@services/teambridge/teambridge-client'
+import { TranscriptUploader } from '@services/teambridge/transcript-uploader'
 import { SessionManager } from './session-manager'
 import { AnswerManager } from './answer-manager'
 import { InterviewSession } from './interview-session'
@@ -52,6 +53,7 @@ let tray: Tray | null = null
 let whisper: WhisperService
 let sessions: SessionManager
 let answers: AnswerManager
+let uploader: TranscriptUploader
 let live: InterviewSession
 let lastFinishedSessionId: string | null = null
 
@@ -76,7 +78,8 @@ async function bootstrap(): Promise<void> {
   whisper = new WhisperService(whisperOptions())
   sessions = new SessionManager(whisper)
   answers = new AnswerManager(teamBridgeClient)
-  live = new InterviewSession(sessions, answers, teamBridgeClient)
+  uploader = new TranscriptUploader(teamBridgeClient)
+  live = new InterviewSession(sessions, answers, uploader, teamBridgeClient)
 
   wireEvents()
   registerIpc()
