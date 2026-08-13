@@ -10,10 +10,13 @@ body {
   background: var(--bg);
 }
 
+/* The conversation owns its own scroller, so the shell must not scroll too. */
 .live {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   height: 100%;
-  overflow-y: auto;
-  scrollbar-width: thin;
+  overflow: hidden;
 }
 
 .grow {
@@ -46,6 +49,7 @@ input {
 
 .callout {
   display: block;
+  flex: 0 0 auto;
   width: 100%;
   text-align: left;
   margin: 0 0 12px;
@@ -69,6 +73,10 @@ input {
 /* ------------------------------- list -------------------------------- */
 
 .list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  width: 100%;
   max-width: 720px;
   margin: 0 auto;
   padding: 18px 20px 40px;
@@ -155,24 +163,170 @@ input {
   line-height: 1.5;
 }
 
-/* ------------------------------ detail -------------------------------- */
+/* --------------------------- conversation ------------------------------ */
 
-.detail {
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 14px 20px 24px;
+.chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
-.detail__head {
+/* Compact and sticky: most of the vertical space belongs to the conversation. */
+.chat__head {
   display: flex;
   align-items: center;
-  margin-bottom: 14px;
+  gap: 12px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.chat__title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 button.back {
   background: transparent;
   border-color: transparent;
   padding-left: 0;
+}
+
+.chat__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.thread {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 24px 20px 8px;
+}
+
+/* Blocks of text separated by space, not boxes. */
+.msg {
+  margin-bottom: 30px;
+}
+
+.msg--assist {
+  margin-top: -14px;
+}
+
+.msg__who {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.msg--assist .msg__who {
+  color: var(--accent);
+}
+
+.msg__text {
+  margin: 0;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.msg--system p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.tagline {
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--warn-border);
+  background: var(--warn-bg);
+  color: var(--fg);
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 600;
+}
+
+.raw {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+  line-height: 1.55;
+  user-select: text;
+}
+
+.failed {
+  margin: 6px 0 0;
+  color: var(--live);
+  line-height: 1.55;
+}
+
+/* Revealed on hover so the conversation stays quiet at rest. */
+.msg__tools {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.msg:hover .msg__tools,
+.msg__tools:focus-within {
+  opacity: 1;
+}
+
+button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+button.link:hover {
+  color: var(--fg);
+  background: none;
+}
+
+.ready {
+  padding: 28px 0;
+}
+
+.ready p {
+  margin: 6px 0 0;
+  line-height: 1.6;
+}
+
+/* The live tail: current activity, always last. */
+.tail {
+  padding: 4px 0 20px;
+}
+
+.tail__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tail__text {
+  margin: 6px 0 0;
+  line-height: 1.6;
+  font-style: italic;
 }
 
 .statuspill {
@@ -182,6 +336,7 @@ button.back {
   padding: 4px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
+  white-space: nowrap;
 }
 
 .dot {
@@ -189,6 +344,7 @@ button.back {
   height: 7px;
   border-radius: 50%;
   background: var(--muted);
+  flex: 0 0 auto;
 }
 
 .dot--live {
@@ -229,83 +385,7 @@ button.back {
   transition: width 90ms linear;
 }
 
-.detail__meta h1 {
-  font-size: 20px;
-  font-weight: 650;
-  margin: 0 0 4px;
-}
-
-.detail__meta p {
-  margin: 0 0 2px;
-}
-
-.panel {
-  margin-top: 18px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel);
-  overflow: hidden;
-}
-
-.panel h2 {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin: 0;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-}
-
-.panel__head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-right: 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-.panel__head h2 {
-  border-bottom: none;
-}
-
-.panel__body {
-  padding: 12px 14px;
-}
-
-.panel__body p {
-  margin: 0 0 8px;
-  line-height: 1.55;
-}
-
-.panel__body p:last-child {
-  margin-bottom: 0;
-}
-
-.transcript {
-  max-height: 160px;
-  overflow-y: auto;
-  user-select: text;
-}
-
-/* Provisional text, superseded the moment the segment commits. */
-.provisional {
-  color: var(--muted);
-  font-style: italic;
-}
-
-.panel--answer .question {
-  font-weight: 650;
-}
-
-.answer {
-  user-select: text;
-  white-space: pre-wrap;
-}
-
-/* Subtle, and only while text is arriving — never a spinner once there are
-   words on screen. */
+/* Only while text is arriving — never a spinner once there are words. */
 .caret {
   display: inline-block;
   width: 7px;
@@ -322,56 +402,56 @@ button.back {
   }
 }
 
-.ask {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
+button.jump {
+  position: absolute;
+  left: 50%;
+  bottom: 120px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 }
 
-.ask input {
+/* ------------------------------ composer ------------------------------- */
+
+.composer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+  padding: 12px 20px 14px;
+  background: var(--bg);
+}
+
+.composer__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 800px;
+  margin: 0 auto 8px;
+}
+
+.composer__row:last-child {
+  margin-bottom: 0;
+}
+
+.composer input {
   flex: 1 1 auto;
 }
 
-.prev {
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 8px;
-  margin-bottom: 8px;
-}
-
-.prev:last-child {
-  border-bottom: none;
-  margin-bottom: 0;
-  padding-bottom: 0;
-}
-
-.prev__q {
+.composer--start {
   display: flex;
-  gap: 10px;
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  border-color: transparent;
-  padding: 4px 0;
-}
-
-.detail__foot {
-  position: sticky;
-  bottom: 0;
-  margin-top: 18px;
-  padding: 12px 0;
-  background: var(--bg);
-  border-top: 1px solid var(--border);
-}
-
-.actions {
-  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  padding: 18px 20px 22px;
 }
 
 button.big {
-  flex: 1 1 auto;
-  padding: 12px;
+  padding: 12px 28px;
   font-size: 15px;
+  font-weight: 650;
+}
+
+button.answerbtn {
+  min-width: 200px;
+  padding: 10px 20px;
   font-weight: 650;
 }

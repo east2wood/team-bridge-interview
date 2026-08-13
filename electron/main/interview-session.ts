@@ -10,6 +10,7 @@ import type {
 import type { Segment } from '@shared/types'
 import type { TeamBridgeClient } from '@services/teambridge/teambridge-client'
 import { child } from '@services/logger'
+import { extractQuestion } from '@services/interview/question-extractor'
 import type { SessionManager } from './session-manager'
 import type { AnswerManager } from './answer-manager'
 
@@ -160,8 +161,12 @@ export class InterviewSession extends EventEmitter {
     // interview, and only the turn ends here.
     await this.sessions.pauseForTurn()
 
-    const question = turn.transcript.trim()
+    // The raw transcript stays on the turn; the question is what gets sent
+    // and what the conversation shows.
+    const extracted = extractQuestion(turn.transcript)
+    const question = extracted.question
     turn.question = question
+    turn.questionConfident = extracted.confident
 
     if (question.length < MIN_QUESTION_CHARS) {
       // Nothing worth asking. Skipping the call keeps a stray click from

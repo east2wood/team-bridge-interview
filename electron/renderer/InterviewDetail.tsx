@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CaptureTurn, LiveSessionState } from '@shared/api-types'
 import { formatTime } from './InterviewList'
 
 /**
- * The live screen for one interview.
+ * One interview as a single continuous conversation.
  *
- * Answer is a capture boundary, not an API button: it says "everything the
- * interviewer has said since the last turn is the question". Capture resumes
- * on its own shortly afterwards, while the answer is still streaming.
+ * Not a transcript panel beside an answer panel: the interview *is* a
+ * sequence of questions and answers, and showing it as one timeline means
+ * nothing has to be visually reset between turns. Capture happens at the
+ * bottom, becomes a question in place, and the answer streams directly
+ * beneath it.
  */
 export function InterviewDetail({
   live,
@@ -20,82 +22,327 @@ export function InterviewDetail({
   partial: string
 }) {
   const interview = live.interview
+  const scroller = useRef<HTMLDivElement>(null)
+  const [pinned, setPinned] = useState(true)
+  const [unread, setUnread] = useState(false)
+
+  // Anything that lengthens the conversation should follow it down — but only
+  // if the reader is already at the bottom. Yanking them away from an answer
+  // they are re-reading is worse than a missed scroll.
+  const tail = live.turns.map((t) => `${t.question ?? ''}${t.answer.length}${t.status}`).join('|')
+  useEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    if (pinned) el.scrollTop = el.scrollHeight
+    else setUnread(true)
+  }, [tail, partial, live.status, pinned])
+
   if (!interview) return null
 
-  // The turn worth showing is the most recent one that has a question; the
-  // one being recorded has nothing to say yet.
-  const answered = [...live.turns].reverse().find((t) => t.question)
-  const previous = live.turns.filter((t) => t.question && t.id !== answered?.id).reverse()
+  const onScroll = () => {
+    const el = scroller.current
+    if (!el) return
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+    setPinned(atBottom)
+    if (atBottom) setUnread(false)
+  }
+
+  const jump = () => {
+    const el = scroller.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+    setPinned(true)
+    setUnread(false)
+  }
+
+  const asked = live.turns.filter((t) => t.question || t.status === 'empty')
+  const started = live.status !== 'idle'
 
   return (
-    <div className="detail">
-      <header className="detail__head">
+    <div className="chat">
+      <header className="chat__head">
         <button className="back" onClick={() => void window.tb.closeInterview()}>
           ← Interviews
         </button>
+        <div className="chat__title">
+          <strong>{interview.position.title ?? 'Untitled round'}</strong>
+          <span className="muted small">
+            {[interview.company.name, interview.candidate?.name, formatTime(interview)]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+        </div>
         <span className="grow" />
         <StatusPill live={live} level={level} />
       </header>
 
-      <section className="detail__meta">
-        <h1>{interview.position.title ?? 'Untitled round'}</h1>
-        <p className="muted">{interview.company.name ?? 'No company'}</p>
-        <p className="muted small">
-          {formatTime(interview)}
-          {interview.candidate ? ` · Candidate: ${interview.candidate.name}` : ''}
-        </p>
-      </section>
-
-      <section className="panel">
-        <h2>Live Transcript</h2>
-        <div className="panel__body transcript">
-          {live.activeTurn?.transcript && <p>{live.activeTurn.transcript}</p>}
-
-          {/* Marked as provisional because it is: Whisper revises it as the
-              phrase finishes, and it is not what gets sent. */}
-          {partial && <p className="provisional">{partial}</p>}
-
-          {!live.activeTurn?.transcript && !partial && (
-            <p className="muted">
-              {live.status === 'recording'
-                ? 'Listening…'
-                : 'Start listening, then press Answer when the question has been asked.'}
-            </p>
+      <div className="chat__scroll" ref={scroller} onScroll={onScroll}>
+        <div className="thread">
+          {asked.length === 0 && !started && (
+            <div className="ready">
+              <strong>Ready for the interview</strong>
+              <p className="muted">
+                Start listening, then press Answer once the interviewer has finished asking.
+              </p>
+            </div>
           )}
+
+          {asked.map((turn) => (
+            <Turn key={turn.id} turn={turn} />
+          ))}
+
+          <Tail live={live} partial={partial} />
         </div>
-      </section>
+      </div>
 
-      <section className="panel panel--answer">
-        <div className="panel__head">
-          <h2>Answer</h2>
-          <span className="grow" />
-          {answered && <AnswerActions turn={answered} />}
-        </div>
-        <div className="panel__body">
-          <AnswerBody turn={answered} status={live.status} />
-        </div>
-      </section>
+      {unread && (
+        <button className="jump" onClick={jump}>
+          ↓ Newest
+        </button>
+      )}
 
-      <ManualAsk disabled={live.serverSessionId === null} />
-
-      {previous.length > 0 && <PreviousTurns turns={previous} />}
-
-      <footer className="detail__foot">
-        <PrimaryAction live={live} />
-      </footer>
+      <Composer live={live} />
     </div>
   )
 }
 
-/* ------------------------------ status ------------------------------- */
+/* ------------------------------ one turn ------------------------------- */
+
+function Turn({ turn }: { turn: CaptureTurn }) {
+  const [showRaw, setShowRaw] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(turn.question ?? '')
+
+  if (turn.status === 'empty') {
+    return (
+      <div className="msg msg--system">
+        <p className="muted">
+          Nothing was asked in that stretch of audio, so nothing was sent. Listening resumed.
+        </p>
+      </div>
+    )
+  }
+
+  // Worth offering only when the two actually differ.
+  const differs = turn.transcript.trim() && turn.transcript.trim() !== turn.question?.trim()
+
+  return (
+    <>
+      <article className="msg">
+        <header className="msg__who">
+          <span>Interviewer</span>
+          <span className="muted small">{clock(turn.startedAt)}</span>
+          {turn.questionConfident === false && (
+            <span className="tagline" title="No clear question was found; this is the tail of what was said.">
+              unclear
+            </span>
+          )}
+        </header>
+
+        {editing ? (
+          <div className="row">
+            <input value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck={false} />
+            <button
+              className="primary"
+              onClick={() => {
+                setEditing(false)
+                void window.tb.regenerate(turn.id, draft)
+              }}
+            >
+              Regenerate
+            </button>
+            <button onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        ) : (
+          <p className="msg__text">{turn.question}</p>
+        )}
+
+        <div className="msg__tools">
+          {!editing && (
+            <button
+              className="link"
+              onClick={() => {
+                setDraft(turn.question ?? '')
+                setEditing(true)
+              }}
+            >
+              Edit
+            </button>
+          )}
+          {differs && (
+            <button className="link" onClick={() => setShowRaw(!showRaw)}>
+              {showRaw ? 'Hide transcript' : 'View transcript'}
+            </button>
+          )}
+        </div>
+
+        {showRaw && <p className="raw">{turn.transcript}</p>}
+      </article>
+
+      <article className="msg msg--assist">
+        <header className="msg__who">
+          <span>TeamBridge Assist</span>
+        </header>
+
+        {turn.status === 'generating' && !turn.answer && <p className="muted">Thinking…</p>}
+
+        {turn.answer && (
+          <p className="msg__text answer">
+            {turn.answer}
+            {turn.status === 'generating' && <span className="caret" aria-hidden />}
+          </p>
+        )}
+
+        {turn.status === 'failed' && turn.error && (
+          <p className="failed">
+            {turn.error.message}
+            {turn.answer ? ' The partial answer above was kept.' : ''}
+          </p>
+        )}
+
+        <div className="msg__tools">
+          {turn.answer && turn.status !== 'generating' && (
+            <button className="link" onClick={() => void navigator.clipboard.writeText(turn.answer)}>
+              Copy
+            </button>
+          )}
+          {turn.status === 'failed' && turn.error?.retryable && (
+            <button className="link" onClick={() => void window.tb.regenerate(turn.id)}>
+              Retry
+            </button>
+          )}
+        </div>
+      </article>
+    </>
+  )
+}
+
+/* --------------------------- live tail ---------------------------- */
+
+/** The current activity, always last, so the page never visually resets. */
+function Tail({ live, partial }: { live: LiveSessionState; partial: string }) {
+  const heard = [live.activeTurn?.transcript, partial].filter(Boolean).join(' ')
+
+  if (live.status === 'recording') {
+    return (
+      <div className="tail">
+        <span className="tail__label">
+          <span className="dot dot--live" aria-hidden /> Listening
+        </span>
+        {heard ? (
+          <p className="muted tail__text">{heard}</p>
+        ) : (
+          <p className="muted tail__text">Capturing the next question…</p>
+        )}
+      </div>
+    )
+  }
+
+  if (live.status === 'finalizing') {
+    return (
+      <div className="tail">
+        <span className="tail__label">Processing question…</span>
+        {heard && <p className="muted tail__text">{heard}</p>}
+      </div>
+    )
+  }
+
+  if (live.status === 'restart_pending') {
+    return (
+      <div className="tail">
+        <span className="tail__label">Listening again in a moment…</span>
+      </div>
+    )
+  }
+
+  return null
+}
+
+/* ------------------------------ composer ------------------------------- */
+
+/**
+ * One persistent bottom area. Start Listening is only ever the initial state:
+ * once running, the primary action is Answer and the big call to action goes
+ * away rather than the controls swapping around.
+ */
+function Composer({ live }: { live: LiveSessionState }) {
+  const [text, setText] = useState('')
+  const [countdown, setCountdown] = useState(0)
+
+  useEffect(() => {
+    if (live.status !== 'restart_pending') return
+    setCountdown(Math.ceil(live.restartInMs / 1000))
+    const t = setInterval(() => setCountdown((n) => Math.max(0, n - 1)), 1000)
+    return () => clearInterval(t)
+  }, [live.status, live.restartInMs])
+
+  const send = () => {
+    if (!text.trim()) return
+    void window.tb.askManually(text)
+    setText('')
+  }
+
+  if (live.status === 'idle' || live.status === 'error') {
+    return (
+      <footer className="composer composer--start">
+        <button className="primary big" onClick={() => void window.tb.startListening()}>
+          Start Listening
+        </button>
+        {live.error && <span className="muted small">{live.error}</span>}
+      </footer>
+    )
+  }
+
+  const answering = live.status === 'recording'
+  return (
+    <footer className="composer">
+      <div className="composer__row">
+        <input
+          value={text}
+          placeholder="Ask manually…"
+          disabled={live.serverSessionId === null}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') send()
+          }}
+        />
+        <button onClick={send} disabled={!text.trim() || live.serverSessionId === null}>
+          Ask
+        </button>
+      </div>
+
+      <div className="composer__row">
+        {live.turnStartedAt && answering && <Elapsed since={live.turnStartedAt} />}
+        <span className="grow" />
+        <button onClick={() => void window.tb.stopListening()}>Stop</button>
+        <button
+          className="primary answerbtn"
+          disabled={!answering}
+          onClick={() => void window.tb.answerNow()}
+        >
+          {live.status === 'finalizing'
+            ? 'Processing question…'
+            : live.status === 'restart_pending'
+              ? countdown > 0
+                ? `Listening again in ${countdown}s…`
+                : 'Listening again…'
+              : live.status === 'starting'
+                ? 'Starting…'
+                : 'Answer'}
+        </button>
+      </div>
+    </footer>
+  )
+}
+
+/* ------------------------------- bits ---------------------------------- */
 
 function StatusPill({ live, level }: { live: LiveSessionState; level: number }) {
   const listening = live.status === 'recording'
   return (
     <span className="statuspill">
       <span className={`dot ${listening ? 'dot--live' : ''}`} aria-hidden />
-      {listening ? 'Listening' : live.status === 'idle' ? 'Audio ready' : label(live.status)}
-      {listening && live.turnStartedAt && <Elapsed since={live.turnStartedAt} />}
+      {listening ? 'Listening' : live.status === 'idle' ? 'Audio ready' : 'Working…'}
       {listening && (
         <span className="minimeter" aria-hidden>
           <span style={{ width: `${Math.min(100, Math.sqrt(level) * 160)}%` }} />
@@ -103,21 +350,6 @@ function StatusPill({ live, level }: { live: LiveSessionState; level: number }) 
       )}
     </span>
   )
-}
-
-function label(status: LiveSessionState['status']): string {
-  switch (status) {
-    case 'starting':
-      return 'Starting…'
-    case 'finalizing':
-      return 'Processing question…'
-    case 'restart_pending':
-      return 'Resuming…'
-    case 'error':
-      return 'Problem'
-    default:
-      return 'Idle'
-  }
 }
 
 function Elapsed({ since }: { since: number }) {
@@ -132,208 +364,8 @@ function Elapsed({ since }: { since: number }) {
   return <span className="elapsed">{`${m}:${s}`}</span>
 }
 
-/* ------------------------------ answer -------------------------------- */
-
-function AnswerBody({
-  turn,
-  status,
-}: {
-  turn: CaptureTurn | undefined
-  status: LiveSessionState['status']
-}) {
-  if (!turn) {
-    return <p className="muted">Your generated answer will appear here.</p>
-  }
-
-  if (turn.status === 'empty') {
-    return (
-      <p className="muted">
-        No question was detected in that stretch of audio, so nothing was sent. Listening resumed
-        automatically.
-      </p>
-    )
-  }
-
-  return (
-    <>
-      <p className="question">{turn.question}</p>
-
-      {/* There is a real gap between the request and the first words — a
-          distinct waiting state beats an empty box. */}
-      {turn.status === 'generating' && !turn.answer && (
-        <p className="muted">Generating answer…</p>
-      )}
-
-      {turn.answer && (
-        <p className="answer">
-          {turn.answer}
-          {turn.status === 'generating' && <span className="caret" aria-hidden />}
-        </p>
-      )}
-
-      {turn.status === 'failed' && turn.error && (
-        <p className="callout callout--error">
-          {turn.error.message}
-          {turn.answer ? ' The partial answer above was kept.' : ''}
-        </p>
-      )}
-
-      {turn.status === 'completed' && status === 'recording' && (
-        <p className="muted small">✓ Complete · listening for the next question</p>
-      )}
-    </>
+function clock(ms: number): string {
+  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
+    new Date(ms),
   )
-}
-
-function AnswerActions({ turn }: { turn: CaptureTurn }) {
-  const [editing, setEditing] = useState(false)
-  const [text, setText] = useState(turn.question ?? '')
-
-  if (editing) {
-    return (
-      <span className="row">
-        <input value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} />
-        <button
-          className="primary"
-          onClick={() => {
-            setEditing(false)
-            void window.tb.regenerate(turn.id, text)
-          }}
-        >
-          Regenerate
-        </button>
-        <button onClick={() => setEditing(false)}>Cancel</button>
-      </span>
-    )
-  }
-
-  return (
-    <span className="row">
-      {turn.answer && (
-        <button onClick={() => void navigator.clipboard.writeText(turn.answer)}>Copy</button>
-      )}
-      {turn.question && (
-        <button
-          onClick={() => {
-            setText(turn.question ?? '')
-            setEditing(true)
-          }}
-        >
-          Edit
-        </button>
-      )}
-      {turn.status === 'failed' && turn.error?.retryable && (
-        <button className="primary" onClick={() => void window.tb.regenerate(turn.id)}>
-          Retry
-        </button>
-      )}
-    </span>
-  )
-}
-
-function ManualAsk({ disabled }: { disabled: boolean }) {
-  const [text, setText] = useState('')
-  const submit = () => {
-    if (!text.trim()) return
-    void window.tb.askManually(text)
-    setText('')
-  }
-
-  return (
-    <div className="ask">
-      <input
-        value={text}
-        placeholder={disabled ? 'Connect TeamBridge to ask questions' : 'Ask manually…'}
-        disabled={disabled}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') submit()
-        }}
-      />
-      <button onClick={submit} disabled={disabled || !text.trim()}>
-        Ask
-      </button>
-    </div>
-  )
-}
-
-function PreviousTurns({ turns }: { turns: CaptureTurn[] }) {
-  const [openId, setOpenId] = useState<string | null>(null)
-
-  return (
-    <section className="panel">
-      <h2>Previous</h2>
-      <div className="panel__body">
-        {turns.map((turn) => (
-          <div key={turn.id} className="prev">
-            <button className="prev__q" onClick={() => setOpenId(openId === turn.id ? null : turn.id)}>
-              <span className="muted small">{new Date(turn.startedAt).toLocaleTimeString()}</span>
-              <span>{turn.question}</span>
-            </button>
-            {openId === turn.id && <p className="answer small">{turn.answer || '—'}</p>}
-          </div>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-/* --------------------------- primary action --------------------------- */
-
-function PrimaryAction({ live }: { live: LiveSessionState }) {
-  const [countdown, setCountdown] = useState(0)
-
-  useEffect(() => {
-    if (live.status !== 'restart_pending') return
-    setCountdown(Math.ceil(live.restartInMs / 1000))
-    const t = setInterval(() => setCountdown((n) => Math.max(0, n - 1)), 1000)
-    return () => clearInterval(t)
-  }, [live.status, live.restartInMs])
-
-  switch (live.status) {
-    case 'recording':
-      return (
-        <div className="actions">
-          {/* Guarded by status alone: a second press cannot land because the
-              status leaves 'recording' the instant the first one does. */}
-          <button className="primary big" onClick={() => void window.tb.answerNow()}>
-            Answer
-          </button>
-          <button onClick={() => void window.tb.stopListening()}>Stop</button>
-        </div>
-      )
-    case 'finalizing':
-      return (
-        <div className="actions">
-          <button className="big" disabled>
-            Processing question…
-          </button>
-        </div>
-      )
-    case 'restart_pending':
-      return (
-        <div className="actions">
-          <button className="big" disabled>
-            {countdown > 0 ? `Listening again in ${countdown}s…` : 'Listening again…'}
-          </button>
-        </div>
-      )
-    case 'starting':
-      return (
-        <div className="actions">
-          <button className="big" disabled>
-            Starting…
-          </button>
-        </div>
-      )
-    default:
-      return (
-        <div className="actions">
-          <button className="primary big" onClick={() => void window.tb.startListening()}>
-            Start Listening
-          </button>
-          {live.error && <span className="muted small">{live.error}</span>}
-        </div>
-      )
-  }
 }

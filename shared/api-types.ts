@@ -106,6 +106,8 @@ export interface CaptureTurn {
   /** Interviewer speech captured during the turn, as transcribed. */
   transcript: string
   question?: string
+  /** False when the question was guessed from the tail rather than identified. */
+  questionConfident?: boolean
   requestId?: string
   questionId?: number
   answer: string
