@@ -197,8 +197,33 @@ export class SessionManager extends EventEmitter {
     this.emit('segment', segment)
   }
 
+  /**
+   * Ends a capture turn without ending the session.
+   *
+   * Stops the devices and drains transcription, so that when this resolves
+   * every segment spoken during the turn has been committed. The local and
+   * server sessions stay open: only the turn ended.
+   */
+  async pauseForTurn(): Promise<void> {
+    if (this.state !== 'recording') return
+    this.stopSilenceWatchdog()
+    this.setState('finalising')
+    this.emit('capture-stop')
+    await this.whisper.flush()
+  }
+
+  /** Reopens the devices for the next turn. Returns null if not paused. */
+  resumeCapture(): AudioChannel[] | null {
+    if (this.state !== 'finalising') return null
+    const channels = channelsFor(settings().get('audioSource'))
+    this.setState('recording')
+    this.startSilenceWatchdog()
+    return channels
+  }
+
   async stop(): Promise<{ sessionId: string; empty: boolean } | null> {
-    if (this.state !== 'recording' && this.state !== 'starting') return null
+    // 'finalising' is included so a session can be ended between turns.
+    if (this.state === 'idle' || this.state === 'stopping') return null
     const sessionId = this.sessionId
     if (!sessionId) return null
 

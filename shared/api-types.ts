@@ -52,15 +52,26 @@ export interface AnswerRequest {
 }
 
 /**
- * What the renderer sees. Every variant carries requestId: a late delta from a
- * cancelled request must be discardable, or it gets appended to its successor.
+ * What the renderer sees.
+ *
+ * Every variant carries both ids. requestId discards a late delta from a
+ * cancelled request; turnId stops one turn's answer being written into the
+ * next one, which is the failure mode when the user presses Answer again
+ * while the previous stream is still running.
  */
 export type AnswerEvent =
-  | { type: 'start'; requestId: string; questionId?: number }
-  | { type: 'delta'; requestId: string; text: string }
-  | { type: 'done'; requestId: string; questionId?: number }
-  | { type: 'error'; requestId: string; code: string; message: string; retryable: boolean }
-  | { type: 'cancelled'; requestId: string }
+  | { type: 'start'; turnId: string; requestId: string; questionId?: number }
+  | { type: 'delta'; turnId: string; requestId: string; text: string }
+  | { type: 'done'; turnId: string; requestId: string; questionId?: number }
+  | {
+      type: 'error'
+      turnId: string
+      requestId: string
+      code: string
+      message: string
+      retryable: boolean
+    }
+  | { type: 'cancelled'; turnId: string; requestId: string }
 
 export type AnswerStatus =
   | 'idle'
@@ -79,12 +90,61 @@ export interface StreamingAnswer {
   error?: { code: string; message: string; retryable: boolean }
 }
 
-/** A question the detector believes was actually asked. */
-export interface DetectedQuestion {
+/**
+ * One press of Answer to the next.
+ *
+ * The button is the capture boundary: everything the interviewer said since
+ * the turn began is the question. That removes the hardest part of automatic
+ * detection — deciding whether a question has finished — because the user has
+ * just said so.
+ */
+export interface CaptureTurn {
   id: string
-  text: string
-  context?: string
-  detectedAt: number
-  /** True when the user typed or corrected it rather than the detector finding it. */
-  manual: boolean
+  index: number
+  startedAt: number
+  endedAt?: number
+  /** Interviewer speech captured during the turn, as transcribed. */
+  transcript: string
+  question?: string
+  requestId?: string
+  questionId?: number
+  answer: string
+  status: TurnStatus
+  error?: { code: string; message: string; retryable: boolean }
+}
+
+export type TurnStatus =
+  | 'recording'
+  | 'transcribing'
+  | 'generating'
+  | 'completed'
+  | 'empty'
+  | 'failed'
+
+/**
+ * The live session's state.
+ *
+ * Explicit rather than a handful of booleans: isRecording && isAnswering &&
+ * isRestarting has states that cannot be reasoned about, and the restart is
+ * exactly where they would go wrong.
+ */
+export type LiveStatus =
+  | 'idle'
+  | 'starting'
+  | 'recording'
+  | 'finalizing'
+  | 'restart_pending'
+  | 'error'
+
+export interface LiveSessionState {
+  status: LiveStatus
+  interview: Interview | null
+  /** The TeamBridge session id; answers are nested under it. */
+  serverSessionId: number | null
+  turnStartedAt: number | null
+  activeTurn: CaptureTurn | null
+  turns: CaptureTurn[]
+  /** Seconds until capture resumes, while restart_pending. */
+  restartInMs: number
+  error?: string
 }

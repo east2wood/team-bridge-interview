@@ -29,7 +29,10 @@ import { settings } from '@services/settings/settings'
 import { closeDatabase, openDatabase } from '@services/history/db'
 import * as repo from '@services/history/session-repo'
 import { WhisperService } from '@services/transcription/whisper-service'
+import { TeamBridgeClient } from '@services/teambridge/teambridge-client'
 import { SessionManager } from './session-manager'
+import { AnswerManager } from './answer-manager'
+import { InterviewSession } from './interview-session'
 import { registerHotkey, unregisterAll } from './hotkeys'
 import { testConnection, normaliseUrl } from '@services/teambridge/connection'
 import {
@@ -48,6 +51,8 @@ const log = child('main')
 let tray: Tray | null = null
 let whisper: WhisperService
 let sessions: SessionManager
+let answers: AnswerManager
+let live: InterviewSession
 let lastFinishedSessionId: string | null = null
 
 // One instance only: two processes fighting over the same hotkey and the same
@@ -70,6 +75,8 @@ async function bootstrap(): Promise<void> {
 
   whisper = new WhisperService(whisperOptions())
   sessions = new SessionManager(whisper)
+  answers = new AnswerManager(teamBridgeClient)
+  live = new InterviewSession(sessions, answers, teamBridgeClient)
 
   wireEvents()
   registerIpc()
@@ -131,6 +138,18 @@ function whisperOptions() {
   }
 }
 
+/**
+ * A client for the configured server, or null when it is not set up. Built per
+ * call so a settings change takes effect without a restart.
+ */
+function teamBridgeClient(): TeamBridgeClient | null {
+  const store = settings()
+  const url = store.get('serverUrl')
+  const token = store.getApiKey()
+  if (!url || !token) return null
+  return new TeamBridgeClient(url, token)
+}
+
 /** Broadcast to every open window: overlay, Live Interview, and settings. */
 function send(channel: string, payload?: unknown): void {
   for (const win of [getOverlay(), getMainWindow(), getSettingsWindow()]) {
@@ -153,6 +172,10 @@ function wireEvents(): void {
   sessions.on('audio-restored', () => send(IPC.onNotice, null))
   sessions.on('partial', (payload) => send(IPC.onPartial, payload))
   sessions.on('segment', (payload) => send(IPC.onSegment, payload))
+  live.on('state', (state) => send(IPC.onLiveState, state))
+  live.on('capture-start', (channels: AudioChannel[]) =>
+    send(IPC.onCaptureCommand, { action: 'start', channels } satisfies CaptureCommand),
+  )
   sessions.on('capture-stop', () =>
     send(IPC.onCaptureCommand, { action: 'stop', channels: [] } satisfies CaptureCommand),
   )
@@ -189,6 +212,29 @@ function registerIpc(): void {
     sessions.noteLevel(payload.rms)
     send(IPC.onLevel, payload)
   })
+
+  ipcMain.handle(IPC.interviewsList, async () => {
+    const client = teamBridgeClient()
+    if (!client) return { ok: false, reason: 'not_configured', interviews: [] }
+    try {
+      return { ok: true, interviews: await client.interviews() }
+    } catch (err) {
+      const error = err as Error & { code?: string }
+      log.warn({ err: error.message }, 'could not list interviews')
+      return { ok: false, reason: error.code ?? 'error', message: error.message, interviews: [] }
+    }
+  })
+
+  ipcMain.handle(IPC.liveGet, () => live.snapshot())
+  ipcMain.on(IPC.liveSelect, (_e, interview) => live.selectInterview(interview))
+  ipcMain.handle(IPC.liveStart, () => live.startListening())
+  ipcMain.handle(IPC.liveAnswer, () => live.answer())
+  ipcMain.handle(IPC.liveStop, () => live.stopListening())
+  ipcMain.handle(IPC.liveClose, () => live.close())
+  ipcMain.handle(IPC.liveAsk, (_e, question: string) => live.askManually(question))
+  ipcMain.handle(IPC.liveRegenerate, (_e, turnId: string, question?: string) =>
+    live.regenerate(turnId, question),
+  )
 
   ipcMain.on(IPC.mainOpen, () => showMain())
   ipcMain.on(IPC.mainMinimise, () => {

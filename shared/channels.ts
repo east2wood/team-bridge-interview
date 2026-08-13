@@ -15,6 +15,18 @@ export const IPC = {
   overlayDismiss: 'overlay:dismiss',
   transcriptGet: 'transcript:get',
 
+  // live interview
+  interviewsList: 'interviews:list',
+  liveGet: 'live:get',
+  liveSelect: 'live:select',
+  liveStart: 'live:start',
+  liveAnswer: 'live:answer',
+  liveStop: 'live:stop',
+  liveClose: 'live:close',
+  liveAsk: 'live:ask',
+  liveRegenerate: 'live:regenerate',
+  onLiveState: 'live:state',
+
   // settings window
   settingsOpen: 'settings:open',
   settingsClose: 'settings:close',
