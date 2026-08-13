@@ -317,6 +317,14 @@ function Composer({ live }: { live: LiveSessionState }) {
         <span className="grow" />
         <button onClick={() => void window.tb.stopListening()}>Stop</button>
         <button
+          className="sendbtn"
+          disabled={!answering || live.sending}
+          title="Send what has been heard so far, so TeamBridge can read the question"
+          onClick={() => void window.tb.sendTranscript()}
+        >
+          {live.sending ? 'Sending…' : 'Send'}
+        </button>
+        <button
           className="primary answerbtn"
           disabled={!answering}
           onClick={() => void window.tb.answerNow()}

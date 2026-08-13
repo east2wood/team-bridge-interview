@@ -167,5 +167,7 @@ export interface LiveSessionState {
   upload: { pending: number; failing: boolean; reason?: string }
   /** The current question according to TeamBridge, if it has found one. */
   detectedQuestion: DetectedQuestion | null
+  /** True while a manual Send is draining transcription and uploading. */
+  sending: boolean
   error?: string
 }

@@ -495,3 +495,8 @@ button.answerbtn {
   line-height: 1.55;
   font-weight: 600;
 }
+
+button.sendbtn {
+  min-width: 96px;
+  padding: 10px 16px;
+}

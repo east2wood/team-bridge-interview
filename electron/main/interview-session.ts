@@ -51,6 +51,7 @@ export class InterviewSession extends EventEmitter {
   private sessionStartedAt: number | null = null
   private sequence = 0
   private detectedQuestion: DetectedQuestion | null = null
+  private sending = false
   private upload = { pending: 0, failing: false } as {
     pending: number
     failing: boolean
@@ -109,6 +110,7 @@ export class InterviewSession extends EventEmitter {
       turns: this.turns,
       upload: this.upload,
       detectedQuestion: this.detectedQuestion,
+      sending: this.sending,
       ...(this.error ? { error: this.error } : {}),
     }
   }
@@ -177,6 +179,29 @@ export class InterviewSession extends EventEmitter {
     this.beginTurn()
     this.setStatus('recording')
     return { ok: true }
+  }
+
+  /**
+   * Pushes what has been heard so far to TeamBridge, without asking anything.
+   *
+   * Uploads already happen as segments commit; this forces the tail through —
+   * draining the worker so the last phrase is transcribed, then waiting for
+   * the queue. Its value is question detection: the server reads the
+   * transcript and says what it thinks is being asked, so the user can see
+   * that before deciding to press Answer. The turn stays open.
+   */
+  async sendTranscript(): Promise<void> {
+    if (this.status !== 'recording' || this.sending) return
+
+    this.sending = true
+    this.publish()
+    try {
+      await this.sessions.flushPending()
+      await this.uploader.flush(UPLOAD_GRACE_MS)
+    } finally {
+      this.sending = false
+      this.publish()
+    }
   }
 
   /**
