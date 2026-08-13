@@ -231,16 +231,26 @@ function Tail({ live, partial }: { live: LiveSessionState; partial: string }) {
   const heard = [live.activeTurn?.transcript, partial].filter(Boolean).join(' ')
 
   if (live.status === 'recording') {
+    const detected = live.detectedQuestion
     return (
       <div className="tail">
         <span className="tail__label">
           <span className="dot dot--live" aria-hidden /> Listening
         </span>
-        {heard ? (
-          <p className="muted tail__text">{heard}</p>
+
+        {/* What TeamBridge believes is being asked. Shown before Answer so the
+            question is never a surprise — it is live state, not history, and
+            only becomes part of the conversation once Answer is pressed. */}
+        {detected ? (
+          <div className="detected">
+            <span className="detected__label">Question detected</span>
+            <p className="detected__text">{detected.text}</p>
+          </div>
         ) : (
-          <p className="muted tail__text">Capturing the next question…</p>
+          <p className="muted tail__text">{heard || 'Building context…'}</p>
         )}
+
+        {detected && heard && <p className="muted tail__text">{heard}</p>}
       </div>
     )
   }

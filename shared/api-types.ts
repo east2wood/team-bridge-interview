@@ -51,6 +51,18 @@ export interface SegmentUpload {
   speaker?: 'interviewer' | 'candidate'
 }
 
+/**
+ * What TeamBridge believes is being asked right now.
+ *
+ * Server-owned: it sees the whole session, and its extraction strips the
+ * run-up that a local rule has to guess at. The local extractor remains only
+ * as a fallback for when nothing has been detected yet.
+ */
+export interface DetectedQuestion {
+  text: string
+  confidence: number | null
+}
+
 export interface AnswerRequest {
   question: string
   context?: string
@@ -153,5 +165,7 @@ export interface LiveSessionState {
   turns: CaptureTurn[]
   /** Transcript sync, so an unreachable server is visible rather than silent. */
   upload: { pending: number; failing: boolean; reason?: string }
+  /** The current question according to TeamBridge, if it has found one. */
+  detectedQuestion: DetectedQuestion | null
   error?: string
 }

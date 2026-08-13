@@ -470,3 +470,28 @@ button.answerbtn {
   border-color: var(--warn-border);
   color: var(--fg);
 }
+
+/* The detected question, emphasised because it is what Answer will send. */
+.detected {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--panel);
+  border-radius: 0 8px 8px 0;
+}
+
+.detected__label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.detected__text {
+  margin: 0;
+  line-height: 1.55;
+  font-weight: 600;
+}

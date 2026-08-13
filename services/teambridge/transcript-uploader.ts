@@ -122,7 +122,8 @@ export class TranscriptUploader extends EventEmitter {
 
         const next = this.queue[0]!
         try {
-          await client.uploadSegments(sessionId, [next])
+          const question = await client.uploadSegments(sessionId, [next])
+          if (question) this.emit('question', question)
           this.queue.shift()
           this.attempt = 0
           this.publish()

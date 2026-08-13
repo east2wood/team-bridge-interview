@@ -3,6 +3,7 @@ import type {
   AnswerRequest,
   AssistSession,
   CreateSessionInput,
+  DetectedQuestion,
   Interview,
   SegmentUpload,
 } from '@shared/api-types'
@@ -69,17 +70,33 @@ export class TeamBridgeClient {
    * Sends committed transcript segments. Accepts a batch; `sequence` is the
    * identity of each, so re-sending one corrects it rather than duplicating.
    */
-  async uploadSegments(sessionId: number, segments: SegmentUpload[]): Promise<void> {
-    await this.json('POST', `/api/v1/assist/sessions/${sessionId}/segments`, {
-      segments: segments.map((segment) => ({
-        sequence: segment.sequence,
-        text: segment.text,
-        started_at: segment.startedAt,
-        ended_at: segment.endedAt,
-        confidence: segment.confidence,
-        speaker: segment.speaker,
-      })),
-    })
+  async uploadSegments(
+    sessionId: number,
+    segments: SegmentUpload[],
+  ): Promise<DetectedQuestion | null> {
+    const body = await this.json<{ question?: RawDetectedQuestion }>(
+      'POST',
+      `/api/v1/assist/sessions/${sessionId}/segments`,
+      {
+        segments: segments.map((segment) => ({
+          sequence: segment.sequence,
+          // Transcription already happened here, so the segment arrives
+          // finished. Without this it is stored as `queued`, and the server
+          // reads neither the prompt's transcript nor question detection from
+          // anything but `completed` — the text would be kept and ignored.
+          status: 'completed',
+          text: segment.text,
+          started_at: segment.startedAt,
+          ended_at: segment.endedAt,
+          confidence: segment.confidence,
+          speaker: segment.speaker,
+        })),
+      },
+    )
+
+    const question = body.question
+    if (!question?.detected || !question.text) return null
+    return { text: question.text, confidence: question.confidence ?? null }
   }
 
   /** Marks the run finished. Statuses are live / ended / failed. */
@@ -275,6 +292,12 @@ interface RawInterview {
   position: { title: string | null }
   company: { name: string | null }
   candidate?: { id: number; name: string } | null
+}
+
+interface RawDetectedQuestion {
+  detected?: boolean
+  text?: string
+  confidence?: number
 }
 
 interface RawSession {

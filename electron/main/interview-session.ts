@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type {
   AnswerEvent,
   CaptureTurn,
+  DetectedQuestion,
   Interview,
   LiveSessionState,
   LiveStatus,
@@ -19,6 +20,15 @@ const log = child('interview')
 
 /** Below this, the turn caught noise rather than a question worth sending. */
 const MIN_QUESTION_CHARS = 12
+
+/**
+ * How long Answer waits for the turn's transcript to reach TeamBridge.
+ *
+ * The prompt is built from the session's completed segments, so answering
+ * before they land answers without the question's own words. Bounded because
+ * an answer with slightly less context beats a button that hangs.
+ */
+const UPLOAD_GRACE_MS = 4000
 
 /**
  * Orchestrates one interview: capture, turns, and answers.
@@ -40,6 +50,7 @@ export class InterviewSession extends EventEmitter {
   private error: string | undefined
   private sessionStartedAt: number | null = null
   private sequence = 0
+  private detectedQuestion: DetectedQuestion | null = null
   private upload = { pending: 0, failing: false } as {
     pending: number
     failing: boolean
@@ -56,6 +67,13 @@ export class InterviewSession extends EventEmitter {
 
     uploader.on('status', (status: typeof this.upload) => {
       this.upload = status
+      this.publish()
+    })
+
+    // TeamBridge sees the whole session and strips the run-up better than a
+    // local rule can, so its reading wins when it has one.
+    uploader.on('question', (question: DetectedQuestion) => {
+      this.detectedQuestion = question
       this.publish()
     })
 
@@ -90,6 +108,7 @@ export class InterviewSession extends EventEmitter {
       activeTurn: this.activeTurn,
       turns: this.turns,
       upload: this.upload,
+      detectedQuestion: this.detectedQuestion,
       ...(this.error ? { error: this.error } : {}),
     }
   }
@@ -137,6 +156,7 @@ export class InterviewSession extends EventEmitter {
         })
         this.serverSessionId = created.id
         this.sequence = 0
+        this.detectedQuestion = null
         this.uploader.open(created.id)
         log.info({ serverSessionId: created.id }, 'opened TeamBridge session')
       } catch (err) {
@@ -179,12 +199,19 @@ export class InterviewSession extends EventEmitter {
     // transcribed and there is no gap to restart from.
     await this.sessions.flushPending()
 
-    // The raw transcript stays on the turn; the question is what gets sent
-    // and what the conversation shows.
+    // Then get those segments to TeamBridge before asking it anything. The
+    // prompt is built from the session's completed transcript, so answering
+    // first would answer without the question's own words. Bounded: a slower
+    // answer beats none if the server is struggling.
+    await this.uploader.flush(UPLOAD_GRACE_MS)
+
+    // TeamBridge's detection wins when it has one; the local extractor covers
+    // the case where nothing has been detected yet.
+    const detected = this.detectedQuestion
     const extracted = extractQuestion(turn.transcript)
-    const question = extracted.question
+    const question = detected?.text ?? extracted.question
     turn.question = question
-    turn.questionConfident = extracted.confident
+    turn.questionConfident = detected ? true : extracted.confident
 
     if (question.length < MIN_QUESTION_CHARS) {
       // Nothing worth asking. Skipping the call keeps a stray click from
@@ -200,6 +227,9 @@ export class InterviewSession extends EventEmitter {
       }
     } else {
       turn.status = 'generating'
+      // The detected question has been taken; the next one belongs to the
+      // next turn, and leaving it set would offer a stale question.
+      this.detectedQuestion = null
       // Not awaited: the interview carries on while the answer streams.
       void this.answers.ask({
         turnId: turn.id,
