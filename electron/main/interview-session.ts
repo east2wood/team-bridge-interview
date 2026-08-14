@@ -21,6 +21,18 @@ const log = child('interview')
 /** Below this, the turn caught noise rather than a question worth sending. */
 const MIN_QUESTION_CHARS = 12
 
+/** A committed segment that ends like this finished a thought. */
+const SENTENCE_END = /[.!?]["')\]]?\s*$/
+
+/**
+ * Coalescing window for automatic sends.
+ *
+ * Speech arrives as several segments in quick succession, and each one that
+ * happens to end in a full stop would otherwise trigger its own flush. Waiting
+ * a moment lets a burst settle into one.
+ */
+const AUTO_SEND_DEBOUNCE_MS = 400
+
 /**
  * How long Answer waits for the turn's transcript to reach TeamBridge.
  *
@@ -52,6 +64,8 @@ export class InterviewSession extends EventEmitter {
   private sequence = 0
   private detectedQuestion: DetectedQuestion | null = null
   private sending = false
+  private autoSendTimer: NodeJS.Timeout | null = null
+  private autoSending = false
   private upload = { pending: 0, failing: false } as {
     pending: number
     failing: boolean
@@ -95,6 +109,12 @@ export class InterviewSession extends EventEmitter {
       if (!this.activeTurn || segment.channel !== 'system') return
       this.activeTurn.transcript = `${this.activeTurn.transcript} ${segment.text}`.trim()
       this.publish()
+
+      // A finished sentence is the natural moment to let the server read what
+      // has been said: its question detection works on whole thoughts, and
+      // waiting for the user to press anything would leave it reading
+      // fragments.
+      if (SENTENCE_END.test(segment.text)) this.scheduleAutoSend()
     })
 
     answers.on('event', (event: AnswerEvent) => this.applyAnswerEvent(event))
@@ -179,6 +199,37 @@ export class InterviewSession extends EventEmitter {
     this.beginTurn()
     this.setStatus('recording')
     return { ok: true }
+  }
+
+  /**
+   * Sends at a sentence boundary, quietly.
+   *
+   * Same work as the Send button, without the button's visible state: this
+   * happens on its own several times a minute, and announcing each one would
+   * be noise. Send remains for forcing a send mid-sentence, when the
+   * interviewer trails off without finishing.
+   */
+  private scheduleAutoSend(): void {
+    if (this.autoSendTimer) clearTimeout(this.autoSendTimer)
+    this.autoSendTimer = setTimeout(() => {
+      this.autoSendTimer = null
+      void this.autoSend()
+    }, AUTO_SEND_DEBOUNCE_MS)
+  }
+
+  private async autoSend(): Promise<void> {
+    // A manual send already in flight is doing the same work; a second one
+    // would only queue behind it.
+    if (this.status !== 'recording' || this.sending || this.autoSending) return
+    this.autoSending = true
+    try {
+      await this.sessions.flushPending()
+      await this.uploader.flush(UPLOAD_GRACE_MS)
+    } catch (err) {
+      log.warn({ err }, 'automatic send failed; the queue will retry')
+    } finally {
+      this.autoSending = false
+    }
   }
 
   /**
@@ -331,6 +382,8 @@ export class InterviewSession extends EventEmitter {
   }
 
   async stopListening(): Promise<void> {
+    if (this.autoSendTimer) clearTimeout(this.autoSendTimer)
+    this.autoSendTimer = null
     this.answers.cancel()
     if (this.activeTurn) {
       this.activeTurn.endedAt = Date.now()
