@@ -25,7 +25,8 @@ export function RecruitmentPanel({
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [attempt, setAttempt] = useState(0)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<'resume' | 'job' | null>(null)
+  const [wholeJob, setWholeJob] = useState(false)
 
   const id = interview.recruitmentId
 
@@ -55,6 +56,18 @@ export function RecruitmentPanel({
 
   const resume = recruitment?.resume
   const resumeText = resume?.text?.trim()
+  const description = recruitment?.job?.description?.trim()
+  // Worth an excerpt only when there is more than an excerpt. A three-line
+  // posting with a Show more under it is a control that does nothing.
+  const longJob =
+    !!description &&
+    (description.split('\n').filter(Boolean).length > 8 || description.length > 420)
+
+  const flash = (what: 'resume' | 'job', text: string) => {
+    void navigator.clipboard.writeText(text)
+    setCopied(what)
+    setTimeout(() => setCopied(null), 1500)
+  }
 
   return (
     <aside className="panel" aria-label="Recruitment details">
@@ -88,45 +101,25 @@ export function RecruitmentPanel({
         {recruitment && (
           <>
             <section className="panel__section">
-              <h3>Candidate</h3>
-              {recruitment.candidate ? (
-                <>
-                  <p className="panel__name">{recruitment.candidate.name}</p>
-                  {recruitment.candidate.headline && (
-                    <p className="panel__headline">{recruitment.candidate.headline}</p>
-                  )}
-                  {/* Only what is there: a column of dashes says nothing except
-                      that somebody left the fields in. */}
-                  <dl className="panel__facts">
-                    <Fact label="Location" value={recruitment.candidate.location} />
-                    <Fact label="Email" value={recruitment.candidate.email} />
-                    <Fact label="Phone" value={recruitment.candidate.phone} />
-                  </dl>
-                </>
-              ) : (
-                <p className="muted">Not shown for this round.</p>
-              )}
-            </section>
-
-            <section className="panel__section">
-              <h3>Job</h3>
+              <h3>Job{description && (
+                  <button className="link" onClick={() => flash('job', description)}>
+                    {copied === 'job' ? 'Copied' : 'Copy'}
+                  </button>
+                )}</h3>
               <p className="panel__name">{recruitment.job?.title ?? recruitment.jobTitle ?? '—'}</p>
-              {recruitment.companyName && (
-                <p className="panel__headline">{recruitment.companyName}</p>
-              )}
-              {recruitment.job?.postingUrl && (
-                <p className="panel__facts">
-                  <a href={recruitment.job.postingUrl} target="_blank" rel="noreferrer">
-                    Open the posting
-                  </a>
-                </p>
-              )}
-
-              <h4 className="panel__sub">Job Description</h4>
-              {recruitment.job?.description ? (
-                <div className="md">
-                  <Markdown text={recruitment.job.description} />
-                </div>
+              {description ? (
+                <>
+                  {/* An excerpt by default: the posting is reference, and a
+                      screen of it between the role and the resume buries both. */}
+                  <div className={`md ${longJob && !wholeJob ? 'md--excerpt' : ''}`}>
+                    <Markdown text={description} />
+                  </div>
+                  {longJob && (
+                    <button className="link" onClick={() => setWholeJob((open) => !open)}>
+                      {wholeJob ? 'Show less' : 'Show more'}
+                    </button>
+                  )}
+                </>
               ) : (
                 <p className="muted">No job description available.</p>
               )}
@@ -136,15 +129,8 @@ export function RecruitmentPanel({
               <h3>
                 Resume
                 {resumeText && (
-                  <button
-                    className="link"
-                    onClick={() => {
-                      void navigator.clipboard.writeText(resumeText)
-                      setCopied(true)
-                      setTimeout(() => setCopied(false), 1500)
-                    }}
-                  >
-                    {copied ? 'Copied' : 'Copy'}
+                  <button className="link" onClick={() => flash('resume', resumeText)}>
+                    {copied === 'resume' ? 'Copied' : 'Copy'}
                   </button>
                 )}
               </h3>
@@ -169,15 +155,5 @@ export function RecruitmentPanel({
         )}
       </div>
     </aside>
-  )
-}
-
-function Fact({ label, value }: { label: string; value?: string | null }) {
-  if (!value?.trim()) return null
-  return (
-    <>
-      <dt className="muted small">{label}</dt>
-      <dd>{value}</dd>
-    </>
   )
 }

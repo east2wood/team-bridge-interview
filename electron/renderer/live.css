@@ -294,10 +294,30 @@ button.link.panel__close {
 }
 
 .panel__sub {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
   margin: 18px 0 6px;
   font-size: 12px;
   font-weight: 700;
   color: var(--muted);
+}
+
+.panel__sub button.link {
+  margin-left: auto;
+  font-weight: 400;
+}
+
+/* Eight lines of it. A posting is reference material, and a screen of it
+   between the role and the resume buries both — measured in lines rather than
+   characters because what is being kept is the shape of a paragraph.
+
+   Faded rather than cut, so it is obvious the text continues instead of
+   looking like a posting that stops mid-sentence. */
+.md--excerpt {
+  max-height: calc(8 * 1.55em);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
 }
 
 /* The name is what the eye should land on. */
