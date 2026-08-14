@@ -175,6 +175,14 @@ export interface CaptureTurn {
   }
   /** Where this turn's segment window opened; closed into `context` on Answer. */
   fromSequence?: number
+  /**
+   * The part of the transcript already sent to TeamBridge.
+   *
+   * Always a prefix of `transcript`, so what is still only heard locally is
+   * the remainder. The distinction is the point: the context box shows what
+   * the server has, and Listening shows what it does not have yet.
+   */
+  sentTranscript?: string
   question?: string
   /** False when the question was guessed from the tail rather than identified. */
   questionConfident?: boolean

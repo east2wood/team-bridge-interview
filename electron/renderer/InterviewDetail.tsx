@@ -324,52 +324,70 @@ function Message({ message }: { message: AssistMessage }) {
 
 /* --------------------------- live tail ---------------------------- */
 
-/** The current activity, always last, so the page never visually resets. */
+/**
+ * The current activity, always last, so the page never visually resets.
+ *
+ * Split by what the server actually has. Transcript that has reached
+ * TeamBridge appears in a context box — the same box it will become when
+ * Answer freezes it — while Listening holds only what has been heard here and
+ * not yet sent. The line between them is the honest one: it moves when an
+ * upload succeeds, not when it is started.
+ */
 function Tail({ live, partial }: { live: LiveSessionState; partial: string }) {
-  const heard = [live.activeTurn?.transcript, partial].filter(Boolean).join(' ')
+  const turn = live.activeTurn
+  const sent = turn?.sentTranscript?.trim() ?? ''
+  const heard = turn?.transcript ?? ''
+  // sentTranscript is always a prefix of transcript, so the remainder is what
+  // is still only local.
+  const unsent = [heard.startsWith(sent) ? heard.slice(sent.length).trim() : heard, partial]
+    .filter(Boolean)
+    .join(' ')
+    .trim()
 
-  if (live.status === 'recording') {
-    const detected = live.detectedQuestion
-    return (
+  if (live.status === 'idle' || live.status === 'error') return null
+
+  const detected = live.detectedQuestion
+
+  return (
+    <>
+      {(sent || detected) && (
+        <section className="source source--live">
+          {sent && (
+            <>
+              <h3>Context</h3>
+              <p className="context">{sent}</p>
+            </>
+          )}
+          {detected && (
+            <>
+              <h3 className="source__qlabel">Question detected</h3>
+              <p className="question">{detected.text}</p>
+            </>
+          )}
+        </section>
+      )}
+
       <div className="tail">
-        <span className="tail__label">
-          <span className="dot dot--live" aria-hidden /> Listening
-        </span>
+        {live.status === 'recording' && (
+          <span className="tail__label">
+            <span className="dot dot--live" aria-hidden /> Listening
+          </span>
+        )}
+        {live.status === 'finalizing' && <span className="tail__label">Processing question…</span>}
+        {live.status === 'starting' && <span className="tail__label">Starting…</span>}
 
-        {/* What TeamBridge believes is being asked. Shown before Answer so the
-            question is never a surprise — it is live state, not history, and
-            only becomes part of the conversation once Answer is pressed. */}
-        {/* Named Context because that is what it becomes: press Answer and
-            this exact text is frozen as the turn's evidence. */}
-        {heard ? (
-          <>
-            <span className="tail__sub muted small">Context</span>
-            <p className="muted tail__text">{heard}</p>
-          </>
+        {unsent ? (
+          <p className="muted tail__text">{unsent}</p>
         ) : (
-          <p className="muted tail__text">Building context…</p>
-        )}
-
-        {detected && (
-          <div className="detected">
-            <span className="detected__label">Question detected</span>
-            <p className="detected__text">{detected.text}</p>
-          </div>
+          live.status === 'recording' && (
+            <p className="muted tail__text">
+              {sent ? 'Waiting for the next sentence…' : 'Building context…'}
+            </p>
+          )
         )}
       </div>
-    )
-  }
-
-  if (live.status === 'finalizing') {
-    return (
-      <div className="tail">
-        <span className="tail__label">Processing question…</span>
-        {heard && <p className="muted tail__text">{heard}</p>}
-      </div>
-    )
-  }
-
-  return null
+    </>
+  )
 }
 
 /* ------------------------------ composer ------------------------------- */

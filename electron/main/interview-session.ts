@@ -250,6 +250,7 @@ export class InterviewSession extends EventEmitter {
     try {
       await this.sessions.flushPending()
       await this.uploader.flush(UPLOAD_GRACE_MS)
+      this.markSent()
     } catch (err) {
       log.warn({ err }, 'automatic send failed; the queue will retry')
     } finally {
@@ -274,10 +275,24 @@ export class InterviewSession extends EventEmitter {
     try {
       await this.sessions.flushPending()
       await this.uploader.flush(UPLOAD_GRACE_MS)
+      this.markSent()
     } finally {
       this.sending = false
       this.publish()
     }
+  }
+
+  /**
+   * Records that everything transcribed so far has reached TeamBridge.
+   *
+   * Taken after the queue drains rather than when the send starts: until then
+   * the server does not have it, and showing it as sent would be a promise the
+   * app cannot keep if the upload is still retrying.
+   */
+  private markSent(): void {
+    if (!this.activeTurn) return
+    this.activeTurn.sentTranscript = this.activeTurn.transcript
+    this.publish()
   }
 
   /**
