@@ -213,6 +213,12 @@ button.back {
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: thin;
+  /* Reserved on both edges so the scrollbar cannot move the transcript.
+     Without it the centred record shifts left by half a scrollbar the moment
+     the interview outgrows the window, while the live line — which is outside
+     this scroller so that it stays put — does not, and the two columns stop
+     lining up partway through a round. */
+  scrollbar-gutter: stable both-edges;
   /* Column + auto top margin below: a short record sits on the bottom of the
      page with the newest line nearest the live text, rather than hanging from
      the top under a screen of empty space. Once it is longer than the window
