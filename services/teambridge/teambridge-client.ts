@@ -183,6 +183,24 @@ export class TeamBridgeClient {
     )
   }
 
+  /**
+   * Hands over the sentence in progress, so anybody watching the round on the
+   * web sees it too. Written nowhere: the segment that follows is the record.
+   *
+   * Blank text is how a client says the speaker stopped, without a second call.
+   */
+  async updateListening(sessionId: number, streamId: string, text: string): Promise<void> {
+    await this.json('PATCH', `/api/v1/assist/sessions/${sessionId}/listening`, {
+      stream_id: streamId,
+      text,
+    })
+  }
+
+  /** Takes the live text down now, rather than leaving it to expire. */
+  async clearListening(sessionId: number): Promise<void> {
+    await this.json('DELETE', `/api/v1/assist/sessions/${sessionId}/listening`)
+  }
+
   /** Marks the run finished. Statuses are live / ended / failed. */
   async endSession(sessionId: number, status: 'ended' | 'failed' = 'ended'): Promise<void> {
     await this.json('PATCH', `/api/v1/assist/sessions/${sessionId}`, { status })

@@ -17,6 +17,7 @@ import { child } from '@services/logger'
 import type { TranscriptUploader } from '@services/teambridge/transcript-uploader'
 import type { MessagePoller } from '@services/teambridge/message-poller'
 import type { RealtimeClient } from '@services/teambridge/realtime-client'
+import { ListeningPublisher } from '@services/teambridge/listening-publisher'
 import { loadHistory } from './history'
 import type { SessionManager } from './session-manager'
 import type { AnswerManager } from './answer-manager'
@@ -76,6 +77,14 @@ export class InterviewSession extends EventEmitter {
   private sentPosition = 0
   private loadingRecord = false
   private realtime: RealtimeStatus = 'disconnected'
+  /**
+   * Hands the sentence in progress to TeamBridge for whoever is watching.
+   *
+   * Not injected: nothing outside this listens to it, and it holds no state
+   * anyone else can act on — it is how partials leave, in the same way the
+   * uploader is how segments leave.
+   */
+  private readonly listening: ListeningPublisher
   private upload = { pending: 0, failing: false } as {
     pending: number
     failing: boolean
@@ -91,6 +100,7 @@ export class InterviewSession extends EventEmitter {
     private readonly clientFor: () => TeamBridgeClient | null,
   ) {
     super()
+    this.listening = new ListeningPublisher(clientFor)
 
     live.on('status', (status: RealtimeStatus) => {
       this.realtime = status
@@ -153,6 +163,11 @@ export class InterviewSession extends EventEmitter {
         },
       ]
 
+      // The sentence closed, so the guess it was made from is retired. Not
+      // announced: the server pairs the segment with the partial it replaced
+      // when the upload lands, and it is the only one that knows the pairing.
+      if (segment.channel === 'system') this.listening.finalize()
+
       if (!this.activeTurn || segment.channel !== 'system') return
       // One block per segment, separated the way the server separates them in
       // `text_between`. It is easier to read than a paragraph that grows a
@@ -167,6 +182,15 @@ export class InterviewSession extends EventEmitter {
       // holding fragments. It also means Answer has almost nothing left to
       // flush, which is where the wait before an answer used to come from.
       if (SENTENCE_END.test(segment.text)) this.scheduleAutoSend()
+    })
+
+    // Speech before it has been decided what it was. Shown here the moment it
+    // arrives and passed on for the web to draw; never kept, and never allowed
+    // near a question.
+    sessions.on('partial', (partial: { channel: string; text: string }) => {
+      // One run has one live sentence, so it is the interviewer's: they are
+      // the one being watched, and two channels would overwrite each other.
+      if (partial.channel === 'system') this.listening.update(partial.text)
     })
 
     answers.on('event', (event: AnswerEvent) => this.applyAnswerEvent(event))
@@ -552,6 +576,7 @@ export class InterviewSession extends EventEmitter {
       this.sequence = 0
       this.sentPosition = this.position
       this.uploader.open(created.id)
+      this.listening.open(created.id)
       this.live.connect(created.id)
       log.info({ serverSessionId: created.id }, 'opened TeamBridge session')
     } catch (err) {
@@ -569,6 +594,10 @@ export class InterviewSession extends EventEmitter {
   private async endServerSession(status: 'ended' | 'failed'): Promise<void> {
     const client = this.clientFor()
     const sessionId = this.serverSessionId
+
+    // Taken down before the run is finished, so a page watching it is not left
+    // with half a sentence under a stopped header.
+    this.listening.close()
 
     // Unsubscribed first, and deliberately: finishing a session broadcasts
     // that it was completed, and a completed session is the app's signal to
