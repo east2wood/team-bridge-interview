@@ -6,7 +6,6 @@ import type {
   CaptureTurn,
   RealtimeEvent,
   RealtimeStatus,
-  DetectedQuestion,
   Interview,
   LiveSessionState,
   LiveStatus,
@@ -14,7 +13,6 @@ import type {
 import type { Segment } from '@shared/types'
 import type { TeamBridgeClient } from '@services/teambridge/teambridge-client'
 import { child } from '@services/logger'
-import { extractQuestion } from '@services/interview/question-extractor'
 import type { TranscriptUploader } from '@services/teambridge/transcript-uploader'
 import type { MessagePoller } from '@services/teambridge/message-poller'
 import type { RealtimeClient } from '@services/teambridge/realtime-client'
@@ -23,8 +21,8 @@ import type { AnswerManager } from './answer-manager'
 
 const log = child('interview')
 
-/** Below this, the turn caught noise rather than a question worth sending. */
-const MIN_QUESTION_CHARS = 12
+/** Below this, the turn caught noise rather than speech worth answering. */
+const MIN_TURN_CHARS = 12
 
 /** A committed segment that ends like this finished a thought. */
 const SENTENCE_END = /[.!?]["')\]]?\s*$/
@@ -67,7 +65,6 @@ export class InterviewSession extends EventEmitter {
   private error: string | undefined
   private sessionStartedAt: number | null = null
   private sequence = 0
-  private detectedQuestion: DetectedQuestion | null = null
   private sending = false
   private autoSendTimer: NodeJS.Timeout | null = null
   private autoSending = false
@@ -118,13 +115,6 @@ export class InterviewSession extends EventEmitter {
       this.publish()
     })
 
-    // TeamBridge sees the whole session and strips the run-up better than a
-    // local rule can, so its reading wins when it has one.
-    uploader.on('question', (question: DetectedQuestion) => {
-      this.detectedQuestion = question
-      this.publish()
-    })
-
     // Interviewer speech belongs to the turn in progress. Attribution is
     // structural — the system channel is the other party — so no guessing.
     sessions.on('segment', (segment: Segment) => {
@@ -148,10 +138,10 @@ export class InterviewSession extends EventEmitter {
       this.activeTurn.transcript = `${this.activeTurn.transcript}\n\n${segment.text}`.trim()
       this.publish()
 
-      // A finished sentence is the natural moment to let the server read what
-      // has been said: its question detection works on whole thoughts, and
-      // waiting for the user to press anything would leave it reading
-      // fragments.
+      // A finished sentence is the natural moment to hand over: the server
+      // works from whole thoughts, and sending mid-phrase would leave it
+      // holding fragments. It also means Answer has almost nothing left to
+      // flush, which is where the wait before an answer used to come from.
       if (SENTENCE_END.test(segment.text)) this.scheduleAutoSend()
     })
 
@@ -167,7 +157,6 @@ export class InterviewSession extends EventEmitter {
       activeTurn: this.activeTurn,
       turns: this.turns,
       upload: this.upload,
-      detectedQuestion: this.detectedQuestion,
       sending: this.sending,
       messages: this.messages,
       realtime: this.realtime,
@@ -225,7 +214,6 @@ export class InterviewSession extends EventEmitter {
         })
         this.serverSessionId = created.id
         this.sequence = 0
-        this.detectedQuestion = null
         this.uploader.open(created.id)
         this.live.connect(created.id)
         log.info({ serverSessionId: created.id }, 'opened TeamBridge session')
@@ -289,9 +277,9 @@ export class InterviewSession extends EventEmitter {
    *
    * Uploads already happen as segments commit; this forces the tail through —
    * draining the worker so the last phrase is transcribed, then waiting for
-   * the queue. Its value is question detection: the server reads the
-   * transcript and says what it thinks is being asked, so the user can see
-   * that before deciding to press Answer. The turn stays open.
+   * the queue. Its value is that the server, and anyone watching the round on
+   * the web, has the words while they still matter — and that Answer, when it
+   * comes, has nothing left to wait for. The turn stays open.
    */
   async sendTranscript(): Promise<void> {
     if (this.status !== 'recording' || this.sending) return
@@ -356,19 +344,15 @@ export class InterviewSession extends EventEmitter {
       text: turn.transcript,
     }
 
-    // TeamBridge's detection wins when it has one; the local extractor covers
-    // the case where nothing has been detected yet.
-    const detected = this.detectedQuestion
-    const extracted = extractQuestion(turn.transcript)
-    const question = detected?.text ?? extracted.question
-    turn.question = question
-    turn.questionConfident = detected ? true : extracted.confident
-
-    if (question.length < MIN_QUESTION_CHARS) {
-      // Nothing worth asking. Skipping the call keeps a stray click from
-      // spending a model request.
+    // No question is named. The server reads one out of the transcript it
+    // already holds — it sees the whole session where this sees one turn, and
+    // it is the party that has to stand behind the answer. What it decided
+    // arrives on the `start` event and is displayed from there.
+    if (turn.transcript.length < MIN_TURN_CHARS) {
+      // Nothing was said. Skipping the call keeps a stray click from spending
+      // a model request.
       turn.status = 'empty'
-      log.info({ turnId: turn.id, chars: question.length }, 'turn had no question; skipping')
+      log.info({ turnId: turn.id, chars: turn.transcript.length }, 'empty turn; skipping')
     } else if (this.serverSessionId === null) {
       turn.status = 'failed'
       turn.error = {
@@ -378,14 +362,10 @@ export class InterviewSession extends EventEmitter {
       }
     } else {
       turn.status = 'generating'
-      // The detected question has been taken; the next one belongs to the
-      // next turn, and leaving it set would offer a stale question.
-      this.detectedQuestion = null
       // Not awaited: the interview carries on while the answer streams.
       void this.answers.ask({
         turnId: turn.id,
         sessionId: this.serverSessionId,
-        question,
         context: this.instructionFor(turn),
       })
     }
@@ -497,7 +477,6 @@ export class InterviewSession extends EventEmitter {
     this.uploader.close()
     this.serverSessionId = null
     this.sequence = 0
-    this.detectedQuestion = null
   }
 
   /** Leaves the interview entirely, discarding turn history. */
@@ -608,10 +587,7 @@ export class InterviewSession extends EventEmitter {
         // render time, so a segment corrected after the fact is reflected
         // here rather than frozen at the moment the button was pressed.
         if (event.question) turn.question = event.question
-        if (event.source) {
-          turn.questionSource = event.source
-          turn.questionConfident = event.source !== 'derived'
-        }
+        if (event.source) turn.questionSource = event.source
         if (event.context) turn.context = event.context
         turn.answer = ''
         turn.status = 'generating'

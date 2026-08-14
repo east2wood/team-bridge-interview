@@ -52,18 +52,6 @@ export interface SegmentUpload {
 }
 
 /**
- * What TeamBridge believes is being asked right now.
- *
- * Server-owned: it sees the whole session, and its extraction strips the
- * run-up that a local rule has to guess at. The local extractor remains only
- * as a fallback for when nothing has been detected yet.
- */
-export interface DetectedQuestion {
-  text: string
-  confidence: number | null
-}
-
-/**
  * Something a colleague watching the round sent to the assistant.
  *
  * The other half of what the app shows, and deliberately not mixed in with
@@ -102,7 +90,13 @@ export interface RealtimeEvent {
 export type QuestionSource = 'detected' | 'manual' | 'derived'
 
 export interface AnswerRequest {
-  question: string
+  /**
+   * What to answer, when the asker names it themselves.
+   *
+   * Omitted for a captured turn: the server reads the question out of the
+   * transcript it already holds, and it is the only party that sees all of it.
+   */
+  question?: string
   context?: string
   /**
    * The app's own name for this request. Kept identical across retries: that
@@ -198,9 +192,8 @@ export interface CaptureTurn {
    * the server has, and Listening shows what it does not have yet.
    */
   sentTranscript?: string
+  /** What the server says it answered. Absent until the stream starts. */
   question?: string
-  /** False when the question was guessed from the tail rather than identified. */
-  questionConfident?: boolean
   /** Set once the server says how it arrived at the question. */
   questionSource?: QuestionSource
   requestId?: string
@@ -237,8 +230,6 @@ export interface LiveSessionState {
   turns: CaptureTurn[]
   /** Transcript sync, so an unreachable server is visible rather than silent. */
   upload: { pending: number; failing: boolean; reason?: string }
-  /** The current question according to TeamBridge, if it has found one. */
-  detectedQuestion: DetectedQuestion | null
   /** True while a manual Send is draining transcription and uploading. */
   sending: boolean
   /** Messages sent from the web by people watching this round. */

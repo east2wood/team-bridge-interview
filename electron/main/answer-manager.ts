@@ -9,7 +9,8 @@ const log = child('answers')
 interface AskInput {
   turnId: string
   sessionId: number
-  question: string
+  /** Omitted for a captured turn: the server works out what was asked. */
+  question?: string
   context?: string
   /** Reused on retry: that is what makes the server treat it as the same question. */
   requestId?: string

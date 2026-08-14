@@ -64,7 +64,11 @@ export function InterviewDetail({
   // a colleague's steer belongs where it was sent, not in a sidebar.
   const items: TimelineItem[] = [
     ...live.turns
-      .filter((t) => t.question || t.status === 'empty')
+      // Everything except the turn still being captured, which Tail draws.
+      // Not "has a question": the question is the server's answer to what was
+      // asked, so waiting for it would hide the turn until the stream starts —
+      // and hide it forever if the request is refused before that.
+      .filter((t) => t.status !== 'recording')
       .map((turn) => ({ kind: 'turn' as const, at: turn.startedAt, id: turn.id, turn })),
     ...live.messages.map((message) => ({
       kind: 'message' as const,
@@ -163,6 +167,11 @@ function Turn({ turn }: { turn: CaptureTurn }) {
   }
 
   const context = turn.context?.text?.trim()
+  // When TeamBridge finds no question it answers the turn as a whole, and says
+  // so by returning the context back as the question. Printing it twice under
+  // two headings would suggest it isolated something when it did not.
+  const question = turn.question?.trim()
+  const asked = question && question !== context ? question : null
 
   const flash = (which: 'source' | 'answer') => {
     setCopied(which)
@@ -174,7 +183,7 @@ function Turn({ turn }: { turn: CaptureTurn }) {
     // to stay distinguishable.
     const parts = [
       context ? ['Context:', context].join('\n') : null,
-      turn.question ? ['Question:', turn.question].join('\n') : null,
+      asked ? ['Question:', asked].join('\n') : null,
     ].filter(Boolean)
     void navigator.clipboard.writeText(parts.join('\n\n'))
     flash('source')
@@ -214,17 +223,7 @@ function Turn({ turn }: { turn: CaptureTurn }) {
           </>
         )}
 
-        <h3 className="source__qlabel">
-          Question
-          {turn.questionConfident === false && (
-            <span
-              className="tagline"
-              title="No clear question was found; this is the tail of what was said."
-            >
-              unclear
-            </span>
-          )}
-        </h3>
+        {asked && <h3 className="source__qlabel">Question</h3>}
 
         {editing ? (
           <div className="row">
@@ -241,7 +240,7 @@ function Turn({ turn }: { turn: CaptureTurn }) {
             <button onClick={() => setEditing(false)}>Cancel</button>
           </div>
         ) : (
-          <p className="question">{turn.question}</p>
+          asked && <p className="question">{asked}</p>
         )}
       </section>
 
@@ -351,24 +350,12 @@ function Tail({ live, partial }: { live: LiveSessionState; partial: string }) {
 
   if (live.status === 'idle' || live.status === 'error') return null
 
-  const detected = live.detectedQuestion
-
   return (
     <>
-      {(sent || detected) && (
+      {sent && (
         <section className="source source--live">
-          {sent && (
-            <>
-              <h3>Context</h3>
-              <p className="context">{sent}</p>
-            </>
-          )}
-          {detected && (
-            <>
-              <h3 className="source__qlabel">Question detected</h3>
-              <p className="question">{detected.text}</p>
-            </>
-          )}
+          <h3>Context</h3>
+          <p className="context">{sent}</p>
         </section>
       )}
 

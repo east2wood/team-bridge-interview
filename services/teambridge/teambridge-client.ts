@@ -4,7 +4,6 @@ import type {
   AssistMessage,
   AssistSession,
   CreateSessionInput,
-  DetectedQuestion,
   Interview,
   QuestionSource,
   SegmentUpload,
@@ -103,11 +102,8 @@ export class TeamBridgeClient {
    * Sends committed transcript segments. Accepts a batch; `sequence` is the
    * identity of each, so re-sending one corrects it rather than duplicating.
    */
-  async uploadSegments(
-    sessionId: number,
-    segments: SegmentUpload[],
-  ): Promise<DetectedQuestion | null> {
-    const body = await this.json<{ question?: RawDetectedQuestion }>(
+  async uploadSegments(sessionId: number, segments: SegmentUpload[]): Promise<void> {
+    await this.json<unknown>(
       'POST',
       `/api/v1/assist/sessions/${sessionId}/segments`,
       {
@@ -126,10 +122,6 @@ export class TeamBridgeClient {
         })),
       },
     )
-
-    const question = body.question
-    if (!question?.detected || !question.text) return null
-    return { text: question.text, confidence: question.confidence ?? null }
   }
 
   /** Marks the run finished. Statuses are live / ended / failed. */
@@ -274,18 +266,12 @@ export class TeamBridgeClient {
   private async streamError(
     response: Response,
   ): Promise<{ code: string; message: string; retryable: boolean }> {
-    const body = (await response.json().catch(() => null)) as
-      | { code?: string; message?: string; error?: string }
-      | null
+    const problem = readProblem(await response.json().catch(() => null), response.status)
 
     // 409 means this exact request is already being answered — retrying
     // immediately would only be refused again.
     const retryable = response.status !== 401 && response.status !== 404 && response.status !== 409
-    return {
-      code: body?.code ?? defaultCode(response.status),
-      message: body?.message ?? body?.error ?? `TeamBridge returned ${response.status}.`,
-      retryable,
-    }
+    return { ...problem, retryable }
   }
 
   private async json<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -300,12 +286,10 @@ export class TeamBridgeClient {
     })
 
     if (!response.ok) {
-      const problem = (await response.json().catch(() => null)) as
-        | { error?: string; message?: string; code?: string }
-        | null
+      const problem = readProblem(await response.json().catch(() => null), response.status)
       throw new TeamBridgeError(
-        problem?.code ?? defaultCode(response.status),
-        problem?.error ?? problem?.message ?? `TeamBridge returned ${response.status}.`,
+        problem.code,
+        problem.message,
         response.status,
         response.status >= 500,
       )
@@ -316,6 +300,40 @@ export class TeamBridgeClient {
 
   private url(path: string): string {
     return `${this.baseUrl.replace(/\/+$/, '')}${path}`
+  }
+}
+
+/**
+ * Reads whichever error shape came back.
+ *
+ * TeamBridge says the same thing four ways depending on which controller
+ * refused: `{code, message}`, `{error: {code, message}}`, `{error: "text"}`,
+ * and `{errors: [...]}`. Guessing one and reading a nested object as a string
+ * puts "[object Object]" in front of the user at the moment they most need to
+ * know what went wrong.
+ */
+function readProblem(body: unknown, status: number): { code: string; message: string } {
+  const fallback = { code: defaultCode(status), message: `TeamBridge returned ${status}.` }
+  if (!body || typeof body !== 'object') return fallback
+
+  const raw = body as Record<string, unknown>
+  const nested = raw['error']
+  const problem =
+    nested && typeof nested === 'object' ? (nested as Record<string, unknown>) : raw
+
+  const errors = raw['errors']
+  const message =
+    typeof problem['message'] === 'string'
+      ? problem['message']
+      : typeof nested === 'string'
+        ? nested
+        : Array.isArray(errors) && errors.length > 0
+          ? errors.join('. ')
+          : fallback.message
+
+  return {
+    code: typeof problem['code'] === 'string' ? problem['code'] : fallback.code,
+    message,
   }
 }
 
@@ -355,12 +373,6 @@ interface RawTurn {
   from_sequence: number
   through_sequence: number
   text?: string
-}
-
-interface RawDetectedQuestion {
-  detected?: boolean
-  text?: string
-  confidence?: number
 }
 
 interface RawSession {

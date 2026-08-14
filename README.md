@@ -140,7 +140,7 @@ The number that governs the whole design, for interview mode:
 |---|---|
 | Loopback capture → PCM frame | ~50 ms |
 | STT partial (cloud) | ~300 ms |
-| Question detected (Haiku classifier) | ~200 ms |
+| Segment upload → TeamBridge | ~100 ms |
 | First assistant token (Opus 5, `effort: low`, cached prefix) | ~700 ms |
 | **Total to first useful word on screen** | **~1.3 s** |
 
@@ -178,7 +178,7 @@ Ordered by dependency, not by ambition. Each phase is independently useful.
 - [ ] Cache-hit telemetry surfaced in settings (`cache_read_input_tokens`)
 
 ### Phase 4 — Interview support
-- [ ] Question detection on the `them` channel (Haiku classifier, runs on final segments)
+- [x] Answer as an explicit capture boundary, in place of question detection
 - [ ] Low-latency suggestion path: `effort: 'low'`, transcript prefix pre-warmed
 - [ ] Compact always-on-top overlay mode
 - [ ] Per-session context: paste in a job description, resume, or product brief
