@@ -176,6 +176,7 @@ function wireEvents(): void {
   sessions.on('partial', (payload) => send(IPC.onPartial, payload))
   sessions.on('segment', (payload) => send(IPC.onSegment, payload))
   live.on('state', (state) => send(IPC.onLiveState, state))
+  live.on('notice', (notice) => send(IPC.onNotice, notice))
   live.on('capture-start', (channels: AudioChannel[]) =>
     send(IPC.onCaptureCommand, { action: 'start', channels } satisfies CaptureCommand),
   )

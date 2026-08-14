@@ -191,6 +191,9 @@ export class InterviewSession extends EventEmitter {
     this.sessionStartedAt = Date.now()
     const started = this.sessions.start()
     if (!started.ok) {
+      // The run was opened a moment ago and will never record: close it as
+      // failed rather than leaving a live session that nothing will finish.
+      await this.endServerSession('failed')
       this.setStatus('error', started.reason)
       return started
     }
@@ -395,25 +398,48 @@ export class InterviewSession extends EventEmitter {
     // Flush before completing: the last question must not disappear because
     // the session was marked ended while its transcript was still in flight.
     await this.uploader.flush()
-    const client = this.clientFor()
-    if (client && this.serverSessionId !== null) {
-      try {
-        await client.endSession(this.serverSessionId)
-      } catch (err) {
-        log.warn({ err }, 'could not mark the TeamBridge session ended')
-      }
-    }
-    this.uploader.close()
+    await this.endServerSession('ended')
 
     this.turnStartedAt = null
     this.setStatus('idle')
+  }
+
+  /**
+   * Marks the run finished on the server and forgets it.
+   *
+   * Clearing the id is the point: startListening only opens a session when it
+   * has none, so a session left set here would be reused by the next Start —
+   * posting segments and answers into a run the server has already closed.
+   */
+  private async endServerSession(status: 'ended' | 'failed'): Promise<void> {
+    const client = this.clientFor()
+    const sessionId = this.serverSessionId
+
+    if (client && sessionId !== null) {
+      try {
+        await client.endSession(sessionId, status)
+        log.info({ sessionId, status }, 'marked the TeamBridge session finished')
+      } catch (err) {
+        // Worth saying out loud: the transcript is safe, but the run stays
+        // open on the server and somebody has to know that.
+        log.warn({ err, sessionId }, 'could not mark the TeamBridge session finished')
+        this.emit('notice', {
+          level: 'warn',
+          message: 'The interview was not marked finished on TeamBridge. Its transcript is saved.',
+        })
+      }
+    }
+
+    this.uploader.close()
+    this.serverSessionId = null
+    this.sequence = 0
+    this.detectedQuestion = null
   }
 
   /** Leaves the interview entirely, discarding turn history. */
   async close(): Promise<void> {
     await this.stopListening()
     this.interview = null
-    this.serverSessionId = null
     this.turns = []
     this.publish()
   }
