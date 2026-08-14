@@ -126,15 +126,23 @@ export function turnText(live: LiveSessionState): string {
   const answered = [...live.turns]
     .reverse()
     .find((turn) => turn.status !== 'boundary' && (turn.question || turn.answer))
-  if (!answered) return ''
+  return answered ? formatTurn(answered) : ''
+}
 
+/**
+ * One turn as labelled text.
+ *
+ * Whatever the turn has: a turn nobody answered is only its context, and that
+ * is still worth keeping — it is the reason the line under it was drawn.
+ */
+export function formatTurn(turn: CaptureTurn): string {
   const labelled = (label: string, text?: string) =>
     text?.trim() ? [label, text.trim()].join('\n') : null
 
   return [
-    labelled('Context:', answered.context?.text),
-    labelled('Question:', answered.question),
-    labelled('Answer:', answered.answer),
+    labelled('Context:', turn.context?.text),
+    labelled('Question:', turn.question),
+    labelled('Answer:', turn.answer),
   ]
     .filter(Boolean)
     .join(SEPARATOR)

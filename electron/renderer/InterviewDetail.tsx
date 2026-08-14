@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { AssistMessage, CaptureTurn, LiveSessionState, TranscriptItem } from '@shared/api-types'
 import type { AudioChannel } from '@shared/types'
 import { formatTime } from './InterviewList'
-import { buildTimeline, currentContext, turnText } from './timeline'
+import { buildTimeline, currentContext, formatTurn, turnText } from './timeline'
 
 /**
  * One interview as a single continuous conversation.
@@ -238,12 +238,29 @@ function WebMessage({ message }: { message: AssistMessage }) {
 function Checkpoint({ turn }: { turn: CaptureTurn }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(turn.question ?? '')
-  const [copied, setCopied] = useState<'question' | 'answer' | null>(null)
+  const [copied, setCopied] = useState<'question' | 'answer' | 'turn' | null>(null)
 
   if (turn.status === 'boundary') {
+    // What was set aside when the line was drawn. Copied to the clipboard at
+    // the time, but a clipboard holds one thing and an interview is long, so
+    // the line keeps its own copy of what it closed.
+    const closed = formatTurn(turn)
     return (
       <div className="turn-line">
         <span>New turn</span>
+        {closed && (
+          <button
+            className="link"
+            title="Copy what was set aside here"
+            onClick={() => {
+              void navigator.clipboard.writeText(closed)
+              setCopied('turn')
+              setTimeout(() => setCopied(null), 1500)
+            }}
+          >
+            {copied === 'turn' ? 'Copied' : 'Copy turn'}
+          </button>
+        )}
       </div>
     )
   }
