@@ -269,7 +269,7 @@ export class InterviewSession extends EventEmitter {
         turnId: turn.id,
         sessionId: this.serverSessionId,
         question,
-        context: this.contextFor(turn),
+        context: this.instructionFor(turn),
       })
     }
 
@@ -295,7 +295,7 @@ export class InterviewSession extends EventEmitter {
       turnId: turn.id,
       sessionId: this.serverSessionId,
       question: text,
-      context: this.contextFor(turn),
+      context: this.instructionFor(turn),
     })
   }
 
@@ -317,7 +317,7 @@ export class InterviewSession extends EventEmitter {
       turnId: turn.id,
       sessionId: this.serverSessionId,
       question: text,
-      context: this.contextFor(turn),
+      context: this.instructionFor(turn),
       // A corrected question is a different question, so it gets a new id.
       // Retrying the same one keeps its id; that is the difference.
       requestId: question ? undefined : turn.requestId,
@@ -394,20 +394,15 @@ export class InterviewSession extends EventEmitter {
   }
 
   /**
-   * Immediate conversational context only.
+   * An instruction for how to answer, not conversation history.
    *
-   * The candidate's resume, the job description and the earlier rounds all
-   * live on the server, which loads them when an answer is asked for. Sending
-   * them from here would be slower and would hand a laptop the whole
-   * recruitment to carry.
+   * `context` on the request is the asker's own steer — "shorter", "more
+   * technical". Earlier questions used to be sent here, which put transcript
+   * into an instruction field; the server now reads the conversation from the
+   * session's segments itself, so there is nothing for a captured turn to add.
    */
-  private contextFor(turn: CaptureTurn): string | undefined {
-    const previous = this.turns
-      .filter((t) => t.id !== turn.id && t.question)
-      .slice(-2)
-      .map((t) => t.question)
-      .join(' ')
-    return previous ? `Earlier in this interview: ${previous}` : undefined
+  private instructionFor(_turn: CaptureTurn): string | undefined {
+    return undefined
   }
 
   private applyAnswerEvent(event: AnswerEvent): void {
@@ -419,6 +414,16 @@ export class InterviewSession extends EventEmitter {
       case 'start':
         turn.requestId = event.requestId
         turn.questionId = event.questionId
+        // The server is authoritative for both: its question is the one it
+        // actually answered, and its transcript is read from the segments at
+        // render time, so a segment corrected after the fact is reflected
+        // here rather than frozen at the moment the button was pressed.
+        if (event.question) turn.question = event.question
+        if (event.source) {
+          turn.questionSource = event.source
+          turn.questionConfident = event.source !== 'derived'
+        }
+        if (event.context) turn.context = event.context
         turn.answer = ''
         turn.status = 'generating'
         break

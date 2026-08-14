@@ -71,7 +71,15 @@ export class AnswerManager extends EventEmitter {
         input.sessionId,
         { question: input.question, context: input.context, clientRequestId: requestId },
         {
-          onStart: ({ questionId }) => this.emitEvent({ type: 'start', ...ids, questionId }),
+          onStart: ({ questionId, question, source, turn }) =>
+            this.emitEvent({
+              type: 'start',
+              ...ids,
+              questionId,
+              question,
+              source,
+              context: turn,
+            }),
           onDelta: ({ text }) => this.emitEvent({ type: 'delta', ...ids, text }),
           onDone: ({ questionId }) => this.emitEvent({ type: 'done', ...ids, questionId }),
           onError: (error) => this.emitEvent({ type: 'error', ...ids, ...error }),

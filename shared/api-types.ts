@@ -63,6 +63,9 @@ export interface DetectedQuestion {
   confidence: number | null
 }
 
+/** How the question was arrived at, according to the server. */
+export type QuestionSource = 'detected' | 'manual' | 'derived'
+
 export interface AnswerRequest {
   question: string
   context?: string
@@ -83,7 +86,16 @@ export interface AnswerRequest {
  * while the previous stream is still running.
  */
 export type AnswerEvent =
-  | { type: 'start'; turnId: string; requestId: string; questionId?: number }
+  | {
+      type: 'start'
+      turnId: string
+      requestId: string
+      questionId?: number
+      /** The server's question and the transcript behind it, both authoritative. */
+      question?: string
+      source?: QuestionSource
+      context?: { fromSequence: number; throughSequence: number; text: string }
+    }
   | { type: 'delta'; turnId: string; requestId: string; text: string }
   | { type: 'done'; turnId: string; requestId: string; questionId?: number }
   | {
@@ -146,6 +158,8 @@ export interface CaptureTurn {
   question?: string
   /** False when the question was guessed from the tail rather than identified. */
   questionConfident?: boolean
+  /** Set once the server says how it arrived at the question. */
+  questionSource?: QuestionSource
   requestId?: string
   questionId?: number
   answer: string

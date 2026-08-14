@@ -5,6 +5,7 @@ import type {
   CreateSessionInput,
   DetectedQuestion,
   Interview,
+  QuestionSource,
   SegmentUpload,
 } from '@shared/api-types'
 import type { Identity } from '@shared/types'
@@ -14,7 +15,14 @@ import { SseParser } from './sse-parser'
 const log = child('teambridge-client')
 
 export interface AnswerStreamHandlers {
-  onStart(data: { questionId?: number }): void
+  onStart(data: {
+    questionId?: number
+    /** The server's normalisation of the question; authoritative over ours. */
+    question?: string
+    source?: QuestionSource
+    /** The transcript the answer is based on, read from the segments. */
+    turn?: { fromSequence: number; throughSequence: number; text: string }
+  }): void
   onDelta(data: { text: string }): void
   onDone(data: { questionId?: number }): void
   onError(error: { code: string; message: string; retryable: boolean }): void
@@ -203,9 +211,22 @@ export class TeamBridgeClient {
     }
 
     switch (name) {
-      case 'start':
-        handlers.onStart({ questionId: payload['question_id'] as number | undefined })
+      case 'start': {
+        const turn = payload['turn'] as RawTurn | undefined
+        handlers.onStart({
+          questionId: payload['question_id'] as number | undefined,
+          question: payload['question'] as string | undefined,
+          source: payload['source'] as QuestionSource | undefined,
+          turn: turn
+            ? {
+                fromSequence: turn.from_sequence,
+                throughSequence: turn.through_sequence,
+                text: turn.text ?? '',
+              }
+            : undefined,
+        })
         break
+      }
       case 'delta':
         // An empty delta is legitimate and simply adds nothing.
         handlers.onDelta({ text: String(payload['text'] ?? '') })
@@ -292,6 +313,12 @@ interface RawInterview {
   position: { title: string | null }
   company: { name: string | null }
   candidate?: { id: number; name: string } | null
+}
+
+interface RawTurn {
+  from_sequence: number
+  through_sequence: number
+  text?: string
 }
 
 interface RawDetectedQuestion {
