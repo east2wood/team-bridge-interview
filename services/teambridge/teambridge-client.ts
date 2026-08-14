@@ -8,6 +8,7 @@ import type {
   QuestionSource,
   SegmentUpload,
 } from '@shared/api-types'
+import type { StoredAnswer, StoredSegment } from '@shared/api-types'
 import type { Identity } from '@shared/types'
 import { child } from '../logger'
 import { SseParser } from './sse-parser'
@@ -87,6 +88,61 @@ export class TeamBridgeClient {
       // Only if the server marks where in the transcript it was written. It
       // does not today, and the app places the message itself when it does not.
       afterPosition: m.after_transcript_sequence ?? null,
+    }))
+  }
+
+  /**
+   * Recent runs belonging to this user, latest first.
+   *
+   * Unfiltered by round because the server does not offer that; the caller
+   * keeps the ones it wants. Asked in bulk for the same reason.
+   */
+  async sessions(limit = 100): Promise<AssistSession[]> {
+    const body = await this.json<{ sessions: RawSession[] }>(
+      'GET',
+      `/api/v1/assist/sessions?limit=${limit}`,
+    )
+    return body.sessions.map(toSession)
+  }
+
+  /** Everything one run heard, in order. */
+  async sessionSegments(sessionId: number): Promise<StoredSegment[]> {
+    const body = await this.json<{ segments?: RawStoredSegment[] }>(
+      'GET',
+      `/api/v1/assist/sessions/${sessionId}`,
+    )
+    return (body.segments ?? [])
+      .filter((segment) => segment.status === 'completed' && segment.text)
+      .map((segment) => ({
+        sequence: segment.sequence,
+        text: segment.text ?? '',
+        startedAt: segment.started_at ?? null,
+        speaker: segment.speaker === 'candidate' ? 'candidate' : 'interviewer',
+      }))
+  }
+
+  /** What was asked in one run and what was written for it. */
+  async answers(sessionId: number): Promise<StoredAnswer[]> {
+    const body = await this.json<{ answers?: RawAnswer[] }>(
+      'GET',
+      `/api/v1/assist/sessions/${sessionId}/answers`,
+    )
+    return (body.answers ?? []).map((answer) => ({
+      id: answer.id,
+      status: answer.status ?? 'completed',
+      question: answer.question ?? '',
+      answer: answer.answer ?? '',
+      source: answer.source,
+      turn: answer.turn
+        ? {
+            fromSequence: answer.turn.from_sequence,
+            throughSequence: answer.turn.through_sequence,
+            text: answer.turn.text ?? '',
+          }
+        : null,
+      askedAt: answer.asked_at ?? null,
+      completedAt: answer.completed_at ?? null,
+      error: answer.error ?? null,
     }))
   }
 
@@ -359,6 +415,26 @@ interface RawInterview {
   position: { title: string | null }
   company: { name: string | null }
   candidate?: { id: number; name: string } | null
+}
+
+interface RawStoredSegment {
+  sequence: number
+  status?: string
+  text?: string
+  speaker?: string
+  started_at?: string | null
+}
+
+interface RawAnswer {
+  id: number
+  status?: string
+  question?: string | null
+  answer?: string | null
+  source?: QuestionSource
+  turn?: RawTurn | null
+  asked_at?: string | null
+  completed_at?: string | null
+  error?: string | null
 }
 
 interface RawMessage {

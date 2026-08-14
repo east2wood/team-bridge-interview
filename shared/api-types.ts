@@ -32,6 +32,32 @@ export interface AssistSession {
   segmentCount: number
 }
 
+/**
+ * A segment already stored on the server, read back when a round is opened.
+ *
+ * Distinct from `SegmentUpload`: this is what came back, not what is being
+ * sent, and it carries only what the record needs to be drawn.
+ */
+export interface StoredSegment {
+  sequence: number
+  text: string
+  startedAt: string | null
+  speaker: 'interviewer' | 'candidate'
+}
+
+/** A question and its answer, read back from a finished run. */
+export interface StoredAnswer {
+  id: number
+  status: string
+  question: string
+  answer: string
+  source?: QuestionSource
+  turn: { fromSequence: number; throughSequence: number; text: string } | null
+  askedAt: string | null
+  completedAt: string | null
+  error: string | null
+}
+
 export interface CreateSessionInput {
   interviewId?: number | null
   audioSource?: string
@@ -272,6 +298,8 @@ export interface LiveSessionState {
   segments: TranscriptItem[]
   /** Everything up to here has reached TeamBridge. */
   sentThroughPosition: number
+  /** True while earlier runs of this round are being read back. */
+  loadingRecord: boolean
   messages: AssistMessage[]
   /** Live connection state. Kept apart from listening: audio may be fine. */
   realtime: RealtimeStatus

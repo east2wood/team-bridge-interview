@@ -96,7 +96,9 @@ export function InterviewDetail({
 
       <div className="chat__scroll" ref={scroller} onScroll={onScroll}>
         <div className="thread">
-          {items.length === 0 && !started && (
+          {live.loadingRecord && <p className="muted small loading">Reading earlier runs…</p>}
+
+          {items.length === 0 && !started && !live.loadingRecord && (
             <div className="ready">
               <strong>Ready for the interview</strong>
               <p className="muted">

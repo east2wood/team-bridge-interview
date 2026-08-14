@@ -482,6 +482,11 @@ button.answerbtn {
   color: var(--fg);
 }
 
+.loading {
+  margin: 0 0 18px;
+  text-align: center;
+}
+
 /* ---------------------------- the transcript ---------------------------- */
 
 /* The bulk of the page. Nothing boxed at this frequency: a hundred bordered

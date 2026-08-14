@@ -17,6 +17,7 @@ import { child } from '@services/logger'
 import type { TranscriptUploader } from '@services/teambridge/transcript-uploader'
 import type { MessagePoller } from '@services/teambridge/message-poller'
 import type { RealtimeClient } from '@services/teambridge/realtime-client'
+import { loadHistory } from './history'
 import type { SessionManager } from './session-manager'
 import type { AnswerManager } from './answer-manager'
 
@@ -73,6 +74,7 @@ export class InterviewSession extends EventEmitter {
   /** Monotonic across the interview, unlike `sequence`, which is per session. */
   private position = 0
   private sentPosition = 0
+  private loadingRecord = false
   private realtime: RealtimeStatus = 'disconnected'
   private upload = { pending: 0, failing: false } as {
     pending: number
@@ -180,6 +182,7 @@ export class InterviewSession extends EventEmitter {
       turns: this.turns,
       segments: this.segments,
       sentThroughPosition: this.sentPosition,
+      loadingRecord: this.loadingRecord,
       upload: this.upload,
       messages: this.messages,
       realtime: this.realtime,
@@ -202,6 +205,10 @@ export class InterviewSession extends EventEmitter {
     if (this.status !== 'idle') return
     this.interview = interview
     this.messages = []
+    this.segments = []
+    this.turns = []
+    this.position = 0
+    this.sentPosition = 0
 
     // Polled for as long as the round is open, not only while listening: a
     // colleague may send a steer before capture starts.
@@ -209,6 +216,48 @@ export class InterviewSession extends EventEmitter {
     else this.poller.stop()
 
     this.publish()
+    if (interview) void this.loadRecord(interview.id)
+  }
+
+  /**
+   * Reads back what earlier runs of this round heard and answered.
+   *
+   * Not awaited by the caller: the round opens immediately and fills in, since
+   * the one thing that must never wait on the network is being able to press
+   * Start Listening.
+   */
+  private async loadRecord(interviewId: number): Promise<void> {
+    const client = this.clientFor()
+    if (!client) return
+
+    this.loadingRecord = true
+    this.publish()
+    try {
+      const history = await loadHistory(client, interviewId)
+      // The round may have been left while this was in flight, in which case
+      // the record it describes is not the one on screen.
+      if (this.interview?.id !== interviewId) return
+      // Listening may also have started. That is fine until something has been
+      // said: once a live segment holds position 1, the record cannot be put
+      // underneath it without renumbering what is already drawn.
+      if (this.position > 0) {
+        log.info({ interviewId }, 'the record arrived after capture began; leaving it out')
+        return
+      }
+
+      this.segments = history.segments
+      // Anything already open stays open, below the record rather than in it.
+      this.turns = [...history.turns, ...this.turns]
+      this.position = history.position
+      // All of it is on the server by definition, so none of it is pending.
+      this.sentPosition = history.position
+      // Messages fetched before the transcript existed were anchored to
+      // nothing; they can be placed now.
+      this.messages = this.messages.map((message) => this.anchor({ ...message, afterPosition: null }))
+    } finally {
+      this.loadingRecord = false
+      this.publish()
+    }
   }
 
   /**
@@ -577,7 +626,20 @@ export class InterviewSession extends EventEmitter {
       const at = this.segments.find((segment) => segment.sequence === message.afterPosition)
       return { ...message, afterPosition: at?.position ?? this.sentPosition }
     }
-    return { ...message, afterPosition: this.sentPosition > 0 ? this.sentPosition : null }
+
+    // Nothing has been uploaded in this run, so there is no "what the sender
+    // could see" to go on. Falls back to the clock, which is the only thing a
+    // message read back from the record shares with the transcript around it.
+    if (this.sentPosition === 0) {
+      const at = Date.parse(message.createdAt) || 0
+      const last = this.segments.reduce(
+        (found, segment) => (segment.startedAt <= at ? segment.position : found),
+        0,
+      )
+      return { ...message, afterPosition: last > 0 ? last : null }
+    }
+
+    return { ...message, afterPosition: this.sentPosition }
   }
 
   /** Segment offsets are session-relative; TeamBridge stores wall-clock times. */
