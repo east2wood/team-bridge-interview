@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AssistMessage, CaptureTurn, LiveSessionState, TranscriptItem } from '@shared/api-types'
+import type { AudioChannel } from '@shared/types'
 import { formatTime } from './InterviewList'
 import { buildTimeline, currentContext } from './timeline'
 
@@ -12,15 +13,23 @@ import { buildTimeline, currentContext } from './timeline'
  * bottom, becomes a question in place, and the answer streams directly
  * beneath it.
  */
+/**
+ * Speech heard but not committed, keyed by channel.
+ *
+ * A third kind of thing, alongside a transcript segment and a checkpoint: it
+ * has no position, no identity, and no permanence. Every update replaces it,
+ * and the segment it becomes deletes it.
+ */
+export type Partials = Partial<Record<AudioChannel, string>>
+
 export function InterviewDetail({
   live,
   level,
-  partial,
+  partials,
 }: {
   live: LiveSessionState
   level: number
-  /** Provisional interviewer speech: displayed, never part of the question. */
-  partial: string
+  partials: Partials
 }) {
   const interview = live.interview
   const scroller = useRef<HTMLDivElement>(null)
@@ -40,7 +49,7 @@ export function InterviewDetail({
     if (!el) return
     if (pinned) el.scrollTop = el.scrollHeight
     else setUnread(true)
-  }, [tail, partial, live.status, pinned])
+  }, [tail, partials, live.status, pinned])
 
   if (!interview) return null
 
@@ -121,7 +130,7 @@ export function InterviewDetail({
             ),
           )}
 
-          <Tail live={live} partial={partial} />
+          <Tail live={live} partials={partials} />
         </div>
       </div>
 
@@ -345,17 +354,24 @@ function Checkpoint({ turn }: { turn: CaptureTurn }) {
   )
 }
 
-/* --------------------------- live tail ---------------------------- */
+/* --------------------------- live listening ---------------------------- */
 
 /**
  * What is being heard right now, always last so the page never resets.
  *
- * Only the phrase in progress. Anything committed has already taken its place
- * in the timeline above — dimmed until it reaches TeamBridge — so repeating it
- * here would show the same words twice and move them when they were sent.
+ * Drawn as a transcript line rather than beside one, because that is what it
+ * is about to become: when the segment commits, the same words appear in the
+ * same place, permanent, and the live line starts empty again. The caret is
+ * the only thing that says it is still being written.
  */
-function Tail({ live, partial }: { live: LiveSessionState; partial: string }) {
+function Tail({ live, partials }: { live: LiveSessionState; partials: Partials }) {
   if (live.status === 'idle' || live.status === 'error') return null
+
+  // The interviewer first, whichever arrived first: the room reads top-down by
+  // who is asking, not by which device happened to commit.
+  const heard = (['system', 'microphone'] as const)
+    .map((channel) => [channel, partials[channel]?.trim() ?? ''] as const)
+    .filter(([, text]) => text.length > 0)
 
   return (
     <div className="tail">
@@ -367,15 +383,24 @@ function Tail({ live, partial }: { live: LiveSessionState; partial: string }) {
       {live.status === 'finalizing' && <span className="tail__label">Processing question…</span>}
       {live.status === 'starting' && <span className="tail__label">Starting…</span>}
 
-      {partial ? (
-        <p className="muted tail__text">{partial}</p>
-      ) : (
-        live.status === 'recording' && (
-          <p className="muted tail__text">
-            {live.segments.length > 0 ? 'Waiting for the next sentence…' : 'Building context…'}
-          </p>
-        )
-      )}
+      {heard.length > 0
+        ? heard.map(([channel, text]) => (
+            <div
+              key={channel}
+              className={`line line--live ${channel === 'microphone' ? 'line--self' : ''}`}
+            >
+              <span className="line__time muted small" aria-hidden />
+              <p className="line__text">
+                {text}
+                <span className="caret" aria-hidden />
+              </p>
+            </div>
+          ))
+        : live.status === 'recording' && (
+            <p className="muted tail__text">
+              {live.segments.length > 0 ? 'Waiting for the next sentence…' : 'Building context…'}
+            </p>
+          )}
     </div>
   )
 }

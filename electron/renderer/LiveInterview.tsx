@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { LiveSessionState } from '@shared/api-types'
+import type { Partials } from './InterviewDetail'
 import type { EngineStatus, LevelPayload } from '@shared/types'
 import { InterviewList } from './InterviewList'
 import { InterviewDetail } from './InterviewDetail'
@@ -22,10 +23,16 @@ export function LiveInterview() {
   const [engine, setEngine] = useState<EngineStatus | null>(null)
   const [level, setLevel] = useState(0)
   const [notice, setNotice] = useState<Notice | null>(null)
-  // Provisional interviewer speech, shown but never sent. The turn's
-  // transcript stays committed-only so a half-heard phrase cannot become the
-  // question; without this the panel simply looked 2-3s behind the overlay.
-  const [partial, setPartial] = useState('')
+  /**
+   * Speech that has been heard but not yet committed, per channel.
+   *
+   * Ephemeral by nature: it is replaced wholesale on every update and thrown
+   * away when the segment it becomes arrives. Never sent anywhere and never
+   * part of a question — a half-heard phrase must not be able to become one —
+   * but shown immediately, because waiting for the commit left the page two or
+   * three seconds behind the room.
+   */
+  const [partials, setPartials] = useState<Partials>({})
 
   useEffect(() => {
     const off = [
@@ -33,13 +40,10 @@ export function LiveInterview() {
       window.tb.onEngineStatus(setEngine),
       window.tb.onLevel((l: LevelPayload) => setLevel(l.rms)),
       window.tb.onNotice(setNotice),
-      window.tb.onPartial((p) => {
-        if (p.channel === 'system') setPartial(p.text)
-      }),
-      // The committed segment supersedes whatever provisional text was showing.
-      window.tb.onSegment((s) => {
-        if (s.channel === 'system') setPartial('')
-      }),
+      window.tb.onPartial((p) => setPartials((was) => ({ ...was, [p.channel]: p.text }))),
+      // The committed segment supersedes the provisional text it was made
+      // from; the next phrase starts the live line again from nothing.
+      window.tb.onSegment((s) => setPartials((was) => ({ ...was, [s.channel]: '' }))),
     ]
     void window.tb.getLive().then(setLive)
     void window.tb.getSettings().then((s) => setEngine(s.engine))
@@ -51,7 +55,7 @@ export function LiveInterview() {
       setLevel(0)
       // A turn boundary ends the provisional text: anything still unresolved
       // was either committed by the flush or is not coming.
-      setPartial('')
+      setPartials({})
     }
   }, [live?.status])
 
@@ -74,7 +78,7 @@ export function LiveInterview() {
       )}
 
       {live.interview ? (
-        <InterviewDetail live={live} level={level} partial={partial} />
+        <InterviewDetail live={live} level={level} partials={partials} />
       ) : (
         <InterviewList onOpen={(interview) => window.tb.selectInterview(interview)} />
       )}

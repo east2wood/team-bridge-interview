@@ -318,11 +318,11 @@ button.link:hover {
 /* The live tail: current activity, always last. */
 .tail {
   padding: 4px 0 20px;
-  margin-left: var(--turn-offset);
 }
 
 .tail__label {
   display: inline-flex;
+  margin-left: var(--turn-offset);
   align-items: center;
   gap: 7px;
   font-size: 11px;
@@ -333,7 +333,7 @@ button.link:hover {
 }
 
 .tail__text {
-  margin: 6px 0 0;
+  margin: 6px 0 0 var(--turn-offset);
   line-height: 1.6;
   font-style: italic;
   /* Segments arrive as separate blocks and stay that way once sent. */
@@ -515,6 +515,18 @@ button.answerbtn {
 /* Said here, not yet on the server. Dimmed rather than withheld, so nothing
    moves when the upload lands — only its weight changes. */
 .line--pending .line__text {
+  color: var(--muted);
+}
+
+/* Being said right now. Reads as a transcript line because that is what it is
+   about to be: when the segment commits, the same words hold the same place
+   and only the caret goes. */
+.line--live {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
+.line--live .line__text {
   color: var(--muted);
 }
 
