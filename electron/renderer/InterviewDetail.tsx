@@ -167,7 +167,7 @@ function Line({ segment, sent }: { segment: TranscriptItem; sent: boolean }) {
         .join(' ')}
       title={sent ? undefined : 'Not yet sent to TeamBridge'}
     >
-      <span className="line__time muted small">{clock(segment.startedAt)}</span>
+      <span className="line__time muted small">{clockPrecise(segment.startedAt)}</span>
       <p className="line__text">{segment.text}</p>
     </div>
   )
@@ -361,46 +361,66 @@ function Checkpoint({ turn }: { turn: CaptureTurn }) {
  *
  * Drawn as a transcript line rather than beside one, because that is what it
  * is about to become: when the segment commits, the same words appear in the
- * same place, permanent, and the live line starts empty again. The caret is
- * the only thing that says it is still being written.
+ * same place, permanent, and the live line starts empty again.
+ *
+ * The time column is left empty and the LIVE mark sits with the words rather
+ * than where a timestamp would go. In the timestamp column it read as a label
+ * for the row — a status the line was filed under — instead of the line being
+ * a continuation of the transcript above it.
  */
 function Tail({ live, partials }: { live: LiveSessionState; partials: Partials }) {
   if (live.status === 'idle' || live.status === 'error') return null
 
-  // The interviewer first, whichever arrived first: the room reads top-down by
-  // who is asking, not by which device happened to commit.
+  if (live.status !== 'recording') {
+    return (
+      <div className="tail">
+        <LiveRow text={live.status === 'starting' ? 'Starting…' : 'Processing question…'} />
+      </div>
+    )
+  }
+
+  // The interviewer first: the room reads by who is asking, not by which
+  // device happened to commit.
   const heard = (['system', 'microphone'] as const)
     .map((channel) => [channel, partials[channel]?.trim() ?? ''] as const)
     .filter(([, text]) => text.length > 0)
 
   return (
     <div className="tail">
-      {live.status === 'recording' && (
-        <span className="tail__label">
-          <span className="dot dot--live" aria-hidden /> Listening
-        </span>
+      {heard.length > 0 ? (
+        heard.map(([channel, text]) => (
+          <LiveRow key={channel} text={text} self={channel === 'microphone'} speaking />
+        ))
+      ) : (
+        <LiveRow text={live.segments.length > 0 ? 'Waiting for the next sentence…' : 'Building context…'} />
       )}
-      {live.status === 'finalizing' && <span className="tail__label">Processing question…</span>}
-      {live.status === 'starting' && <span className="tail__label">Starting…</span>}
+    </div>
+  )
+}
 
-      {heard.length > 0
-        ? heard.map(([channel, text]) => (
-            <div
-              key={channel}
-              className={`line line--live ${channel === 'microphone' ? 'line--self' : ''}`}
-            >
-              <span className="line__time muted small" aria-hidden />
-              <p className="line__text">
-                {text}
-                <span className="caret" aria-hidden />
-              </p>
-            </div>
-          ))
-        : live.status === 'recording' && (
-            <p className="muted tail__text">
-              {live.segments.length > 0 ? 'Waiting for the next sentence…' : 'Building context…'}
-            </p>
-          )}
+/** One live line: an empty gutter, then the mark and the words on one baseline. */
+function LiveRow({
+  text,
+  self = false,
+  speaking = false,
+}: {
+  text: string
+  self?: boolean
+  /** Whether these are words being said, rather than a note about the state. */
+  speaking?: boolean
+}) {
+  return (
+    <div className={`line line--live ${self ? 'line--self' : ''}`}>
+      <span className="line__time" aria-hidden />
+      <p className="line__text">
+        <span className="live__mark">
+          <span className="dot dot--live" aria-hidden /> Live
+        </span>
+        <span className="live__words">
+          {text}
+          {speaking && <span className="caret" aria-hidden />}
+        </span>
+      </p>
     </div>
   )
 }
@@ -524,8 +544,23 @@ function Elapsed({ since }: { since: number }) {
   return <span className="elapsed">{`${m}:${s}`}</span>
 }
 
+/** For a heading, where the minute is enough to place something. */
 function clock(ms: number): string {
   return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
     new Date(ms),
   )
+}
+
+/**
+ * For a transcript line, which needs the second.
+ *
+ * Somebody says several things a minute, and a column of identical times tells
+ * the reader nothing about where in the round they are.
+ */
+function clockPrecise(ms: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(new Date(ms))
 }

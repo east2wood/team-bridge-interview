@@ -6,6 +6,12 @@
    technical answers need. */
 :root {
   --turn-offset: 48px;
+  /* The transcript's two columns. Everything that has to line up with the
+     words — a message dropped into the transcript, the live line — measures
+     from these rather than repeating the numbers. */
+  --time-col: 84px;
+  --time-gap: 12px;
+  --text-col: calc(var(--turn-offset) + var(--time-col) + var(--time-gap));
 }
 
 html,
@@ -320,26 +326,6 @@ button.link:hover {
   padding: 4px 0 20px;
 }
 
-.tail__label {
-  display: inline-flex;
-  margin-left: var(--turn-offset);
-  align-items: center;
-  gap: 7px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.tail__text {
-  margin: 6px 0 0 var(--turn-offset);
-  line-height: 1.6;
-  font-style: italic;
-  /* Segments arrive as separate blocks and stay that way once sent. */
-  white-space: pre-wrap;
-}
-
 .statuspill {
   display: inline-flex;
   align-items: center;
@@ -493,16 +479,17 @@ button.answerbtn {
    segments is a list of cards, not a record of a conversation. */
 .line {
   display: flex;
-  gap: 12px;
+  gap: var(--time-gap);
   margin-bottom: 14px;
   margin-left: var(--turn-offset);
 }
 
 .line__time {
   flex: none;
-  width: 62px;
+  width: var(--time-col);
   padding-top: 2px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   text-align: right;
 }
 
@@ -526,8 +513,30 @@ button.answerbtn {
   margin-bottom: 0;
 }
 
+/* The mark and the words share a baseline, so LIVE reads as the beginning of
+   the line rather than as a heading over it. Long speech wraps under itself,
+   not under the mark. */
 .line--live .line__text {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
   color: var(--muted);
+}
+
+.live__mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--live);
+}
+
+.live__words {
+  font-style: italic;
 }
 
 /* The user's own half, when the microphone is being captured too. Secondary
@@ -543,8 +552,10 @@ button.answerbtn {
    aside rather than as the next thing said. Deliberately unlike a generated
    answer — a person wrote this, and knowing which of the two you are reading
    is most of knowing whether to trust it. */
+/* Left edge on the words, not on the timestamps: it interrupts the transcript
+   and belongs in the same column the transcript speaks in. */
 .web {
-  margin: 18px 0 18px calc(var(--turn-offset) + 74px);
+  margin: 18px 0 18px var(--text-col);
   margin-right: var(--turn-offset);
   padding: 10px 14px;
   border-left: 3px solid var(--tag-mic);
@@ -700,6 +711,9 @@ button.answerbtn {
     --turn-offset: 0px;
   }
 
+  /* --time-col is deliberately not narrowed: the times are nowrap now, so a
+     column too small to hold one overflows into the words. Only the reading
+     offset gives way. */
   .web {
     margin-left: 16px;
   }
