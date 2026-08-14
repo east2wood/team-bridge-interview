@@ -336,6 +336,8 @@ button.link:hover {
   margin: 6px 0 0;
   line-height: 1.6;
   font-style: italic;
+  /* Segments arrive as separate blocks and stay that way once sent. */
+  white-space: pre-wrap;
 }
 
 .statuspill {

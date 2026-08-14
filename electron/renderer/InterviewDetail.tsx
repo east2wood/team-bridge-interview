@@ -346,7 +346,7 @@ function Tail({ live, partial }: { live: LiveSessionState; partial: string }) {
   // is still only local.
   const unsent = [heard.startsWith(sent) ? heard.slice(sent.length).trim() : heard, partial]
     .filter(Boolean)
-    .join(' ')
+    .join('\n\n')
     .trim()
 
   if (live.status === 'idle' || live.status === 'error') return null

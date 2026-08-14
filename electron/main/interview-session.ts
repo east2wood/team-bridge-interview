@@ -140,7 +140,12 @@ export class InterviewSession extends EventEmitter {
       })
 
       if (!this.activeTurn || segment.channel !== 'system') return
-      this.activeTurn.transcript = `${this.activeTurn.transcript} ${segment.text}`.trim()
+      // One block per segment, separated the way the server separates them in
+      // `text_between`. It is easier to read than a paragraph that grows a
+      // sentence at a time, and TeamBridge's copy of the turn replaces this one
+      // as soon as an answer starts — joined differently, the context would
+      // visibly reflow at that moment.
+      this.activeTurn.transcript = `${this.activeTurn.transcript}\n\n${segment.text}`.trim()
       this.publish()
 
       // A finished sentence is the natural moment to let the server read what
