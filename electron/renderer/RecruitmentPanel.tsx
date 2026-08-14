@@ -106,7 +106,7 @@ export function RecruitmentPanel({
                     {copied === 'job' ? 'Copied' : 'Copy'}
                   </button>
                 )}</h3>
-              <p className="panel__name">{recruitment.job?.title ?? recruitment.jobTitle ?? '—'}</p>
+              <p className="panel__name">{recruitment?.companyName ?? interview.company.name ?? '—'}</p>
               {description ? (
                 <>
                   {/* An excerpt by default: the posting is reference, and a
