@@ -276,8 +276,11 @@ export class InterviewSession extends EventEmitter {
       // All of it is on the server by definition, so none of it is pending.
       this.sentPosition = history.position
       // Messages fetched before the transcript existed were anchored to
-      // nothing; they can be placed now.
-      this.messages = this.messages.map((message) => this.anchor({ ...message, afterPosition: null }))
+      // nothing. They are placed by time and said to be, rather than left to
+      // `anchor` to work out: everything it would infer from — what has been
+      // uploaded in this run — has just been set to the end of the record, and
+      // would put every one of them at the bottom.
+      this.messages = this.messages.map((message) => this.placeByClock(message))
     } finally {
       this.loadingRecord = false
       this.publish()
@@ -656,19 +659,31 @@ export class InterviewSession extends EventEmitter {
       return { ...message, afterPosition: at?.position ?? this.sentPosition }
     }
 
-    // Nothing has been uploaded in this run, so there is no "what the sender
-    // could see" to go on. Falls back to the clock, which is the only thing a
-    // message read back from the record shares with the transcript around it.
-    if (this.sentPosition === 0) {
-      const at = Date.parse(message.createdAt) || 0
-      const last = this.segments.reduce(
-        (found, segment) => (segment.startedAt <= at ? segment.position : found),
-        0,
-      )
-      return { ...message, afterPosition: last > 0 ? last : null }
-    }
+    // Arrived while this run was uploading, so the sender could only have been
+    // reading what had reached the server by then.
+    if (this.sentPosition > 0) return { ...message, afterPosition: this.sentPosition }
 
-    return { ...message, afterPosition: this.sentPosition }
+    return this.placeByClock(message)
+  }
+
+  /**
+   * Places a message by the clock.
+   *
+   * For messages with no "what the sender could see" to go on: read back with
+   * the record, or arrived before anything had been uploaded. Time is all they
+   * share with the transcript around them — and the only thing they *can*
+   * share, since the position they would otherwise be pinned to is a fact
+   * about this run, and one of them may be from a run last week.
+   */
+  private placeByClock(message: AssistMessage): AssistMessage {
+    const at = Date.parse(message.createdAt) || 0
+    const last = this.segments.reduce(
+      (found, segment) => (segment.startedAt <= at ? segment.position : found),
+      0,
+    )
+    // Nothing was said before it, so it belongs above the transcript rather
+    // than at an arbitrary point inside it.
+    return { ...message, afterPosition: last > 0 ? last : null }
   }
 
   /** Segment offsets are session-relative; TeamBridge stores wall-clock times. */
