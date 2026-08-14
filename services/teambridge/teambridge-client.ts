@@ -86,7 +86,7 @@ export class TeamBridgeClient {
       createdAt: m.created_at ?? new Date().toISOString(),
       // Only if the server marks where in the transcript it was written. It
       // does not today, and the app places the message itself when it does not.
-      afterSequence: m.after_transcript_sequence ?? null,
+      afterPosition: m.after_transcript_sequence ?? null,
     }))
   }
 

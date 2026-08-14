@@ -66,12 +66,14 @@ export class InterviewSession extends EventEmitter {
   private error: string | undefined
   private sessionStartedAt: number | null = null
   private sequence = 0
-  private sending = false
+  private flushing = false
   private autoSendTimer: NodeJS.Timeout | null = null
   private autoSending = false
   private messages: AssistMessage[] = []
   private segments: TranscriptItem[] = []
-  private sentThrough = 0
+  /** Monotonic across the interview, unlike `sequence`, which is per session. */
+  private position = 0
+  private sentPosition = 0
   private realtime: RealtimeStatus = 'disconnected'
   private upload = { pending: 0, failing: false } as {
     pending: number
@@ -119,7 +121,7 @@ export class InterviewSession extends EventEmitter {
       // server. Taken from here rather than from Send, so the transcript stops
       // looking unsent the moment it is not — the queue drains on its own
       // between checkpoints.
-      if (status.pending === 0) this.sentThrough = this.sequence
+      if (status.pending === 0) this.sentPosition = this.position
       this.publish()
     })
 
@@ -142,6 +144,7 @@ export class InterviewSession extends EventEmitter {
       this.segments = [
         ...this.segments,
         {
+          position: (this.position += 1),
           sequence: this.sequence,
           text: segment.text,
           startedAt: this.startedAtEpoch(segment.startMs),
@@ -177,9 +180,9 @@ export class InterviewSession extends EventEmitter {
       activeTurn: this.activeTurn,
       turns: this.turns,
       segments: this.segments,
-      sentThroughSequence: this.sentThrough,
+      sentThroughPosition: this.sentPosition,
       upload: this.upload,
-      sending: this.sending,
+      flushing: this.flushing,
       messages: this.messages,
       realtime: this.realtime,
       ...(this.error ? { error: this.error } : {}),
@@ -226,25 +229,7 @@ export class InterviewSession extends EventEmitter {
 
     // The session must exist server side before any answer can be asked;
     // answers are nested under it.
-    const client = this.clientFor()
-    if (client && this.serverSessionId === null) {
-      try {
-        const created = await client.createSession({
-          interviewId: this.interview?.id ?? null,
-          audioSource: 'system',
-          transcriber: 'faster-whisper',
-        })
-        this.serverSessionId = created.id
-        this.sequence = 0
-        this.uploader.open(created.id)
-        this.live.connect(created.id)
-        log.info({ serverSessionId: created.id }, 'opened TeamBridge session')
-      } catch (err) {
-        // Local capture is still worth having, so this is a warning rather
-        // than a refusal — but answers will be unavailable and the UI says so.
-        log.warn({ err }, 'could not open a TeamBridge session')
-      }
-    }
+    await this.openServerSession()
 
     this.sessionStartedAt = Date.now()
     const started = this.sessions.start()
@@ -281,7 +266,7 @@ export class InterviewSession extends EventEmitter {
   private async autoSend(): Promise<void> {
     // A manual send already in flight is doing the same work; a second one
     // would only queue behind it.
-    if (this.status !== 'recording' || this.sending || this.autoSending) return
+    if (this.status !== 'recording' || this.flushing || this.autoSending) return
     this.autoSending = true
     try {
       await this.sessions.flushPending()
@@ -295,27 +280,128 @@ export class InterviewSession extends EventEmitter {
   }
 
   /**
-   * Pushes what has been heard so far to TeamBridge, without asking anything.
+   * Gets everything heard so far onto the server and waits for it to land.
    *
-   * Uploads already happen as segments commit; this forces the tail through —
-   * draining the worker so the last phrase is transcribed, then waiting for
-   * the queue. Its value is that the server, and anyone watching the round on
-   * the web, has the words while they still matter — and that Answer, when it
-   * comes, has nothing left to wait for. The turn stays open.
+   * Drains the worker so the last phrase is transcribed, then waits on the
+   * upload queue. Bounded by the grace period: an operation that continues
+   * with slightly less on the server beats one that hangs.
    */
-  async sendTranscript(): Promise<void> {
-    if (this.status !== 'recording' || this.sending) return
-
-    this.sending = true
+  private async flushToServer(): Promise<void> {
+    this.flushing = true
     this.publish()
     try {
       await this.sessions.flushPending()
       await this.uploader.flush(UPLOAD_GRACE_MS)
       this.markSent()
     } finally {
-      this.sending = false
+      this.flushing = false
       this.publish()
     }
+  }
+
+  /**
+   * Closes the current context and opens a new one, without asking anything.
+   *
+   * For when the round moves on and what has piled up is no longer what any
+   * answer should be built from. The transcript stays on screen — this is a
+   * boundary in the record, not a deletion — but the server is given a new
+   * session, because the context an answer is derived from is the session's
+   * own, and nothing short of a new one moves its read-mark without also
+   * generating an answer.
+   *
+   * Capture is never interrupted: the devices stay open across the swap, so
+   * nothing said during it is lost.
+   */
+  async newContext(): Promise<void> {
+    if (this.status !== 'recording' || this.flushing) return
+
+    // Get the closing context onto the server before the session it belongs to
+    // is finished, or the tail of it lands nowhere.
+    await this.flushToServer()
+
+    // The range belongs to the session being closed, so it is read before the
+    // swap resets the counter.
+    const turn = this.activeTurn
+    const closing = turn
+      ? {
+          fromSequence: turn.fromSequence ?? 1,
+          throughSequence: this.sequence,
+          text: turn.transcript,
+        }
+      : null
+
+    // Nothing is marked locally until the server has somewhere else to put the
+    // transcript. Drawing the boundary on screen while the server still holds
+    // the old context would promise a clean slate the next answer would not
+    // honour.
+    if (!(await this.swapServerSession())) return
+
+    if (turn && closing) {
+      turn.status = 'reset'
+      turn.endedAt = Date.now()
+      // Read after the swap: anything said during it went to the old session,
+      // so it belongs above the boundary.
+      turn.throughPosition = this.position
+      turn.context = closing
+    }
+
+    this.beginTurn()
+    this.publish()
+    log.info({ position: this.position }, 'started a new context')
+  }
+
+  /**
+   * Puts a fresh session in place of the current one.
+   *
+   * The replacement is opened *before* the old one is finished, and the two
+   * are never both absent: the uploader discards anything enqueued while it
+   * has no session, and capture does not pause for this, so a gap between them
+   * is speech that reaches the screen and never reaches the server.
+   *
+   * Ending the old run is therefore the last thing done and the least
+   * important — a run left open on the server is untidy, where a hole in the
+   * transcript is a wrong answer later.
+   */
+  private async swapServerSession(): Promise<boolean> {
+    const client = this.clientFor()
+    const previous = this.serverSessionId
+    // No server to disagree with: the boundary is local and that is all it
+    // could ever have been.
+    if (!client) return true
+
+    try {
+      const created = await client.createSession({
+        interviewId: this.interview?.id ?? null,
+        audioSource: 'system',
+        transcriber: 'faster-whisper',
+      })
+      this.live.disconnect()
+      this.serverSessionId = created.id
+      this.sequence = 0
+      this.sentPosition = this.position
+      this.uploader.open(created.id)
+      this.live.connect(created.id)
+      log.info({ previous, serverSessionId: created.id }, 'swapped in a new TeamBridge session')
+    } catch (err) {
+      // The old session is still open and still being uploaded to, so the
+      // interview carries on — with the context it already had.
+      log.warn({ err }, 'could not open a replacement session; keeping the current one')
+      this.emit('notice', {
+        level: 'warn',
+        message:
+          'TeamBridge did not accept a new context. The interview is carrying on with the current one.',
+      })
+      return false
+    }
+
+    if (previous !== null) {
+      try {
+        await client.endSession(previous, 'ended')
+      } catch (err) {
+        log.warn({ err, previous }, 'could not finish the previous session')
+      }
+    }
+    return true
   }
 
   /**
@@ -328,9 +414,9 @@ export class InterviewSession extends EventEmitter {
   private markSent(): void {
     if (!this.activeTurn) return
     this.activeTurn.sentTranscript = this.activeTurn.transcript
-    // Everything queued has drained, so every sequence handed out so far is on
-    // the server. This is what a message arriving now was written against.
-    this.sentThrough = this.sequence
+    // Everything queued has drained, so all of it is on the server. This is
+    // what a message arriving now was written against.
+    this.sentPosition = this.position
     this.publish()
   }
 
@@ -363,6 +449,7 @@ export class InterviewSession extends EventEmitter {
     // Freeze what this answer is based on before anything else can change it.
     // The next turn starts collecting immediately afterwards, so this is the
     // only moment the window is unambiguous.
+    turn.throughPosition = this.position
     turn.context = {
       fromSequence: turn.fromSequence ?? 1,
       throughSequence: this.sequence,
@@ -409,6 +496,8 @@ export class InterviewSession extends EventEmitter {
     turn.question = text
     turn.transcript = text
     turn.endedAt = Date.now()
+    // Typed, so it belongs wherever the transcript had got to.
+    turn.throughPosition = this.position
     turn.status = 'generating'
     this.turns = [...this.turns, turn]
     this.publish()
@@ -473,6 +562,34 @@ export class InterviewSession extends EventEmitter {
   }
 
   /**
+   * Opens a run on the server, if there is a server and no run already.
+   *
+   * Local capture is still worth having without one, so a failure here is a
+   * warning rather than a refusal — but answers will be unavailable, and the
+   * UI says so.
+   */
+  private async openServerSession(): Promise<void> {
+    const client = this.clientFor()
+    if (!client || this.serverSessionId !== null) return
+
+    try {
+      const created = await client.createSession({
+        interviewId: this.interview?.id ?? null,
+        audioSource: 'system',
+        transcriber: 'faster-whisper',
+      })
+      this.serverSessionId = created.id
+      this.sequence = 0
+      this.sentPosition = this.position
+      this.uploader.open(created.id)
+      this.live.connect(created.id)
+      log.info({ serverSessionId: created.id }, 'opened TeamBridge session')
+    } catch (err) {
+      log.warn({ err }, 'could not open a TeamBridge session')
+    }
+  }
+
+  /**
    * Marks the run finished on the server and forgets it.
    *
    * Clearing the id is the point: startListening only opens a session when it
@@ -482,6 +599,12 @@ export class InterviewSession extends EventEmitter {
   private async endServerSession(status: 'ended' | 'failed'): Promise<void> {
     const client = this.clientFor()
     const sessionId = this.serverSessionId
+
+    // Unsubscribed first, and deliberately: finishing a session broadcasts
+    // that it was completed, and a completed session is the app's signal to
+    // stop listening. Told about a closure it performed itself, it would stop
+    // capture in the middle of starting a new context.
+    this.live.disconnect()
 
     if (client && sessionId !== null) {
       try {
@@ -498,11 +621,9 @@ export class InterviewSession extends EventEmitter {
       }
     }
 
-    this.live.disconnect()
     this.uploader.close()
     this.serverSessionId = null
     this.sequence = 0
-    this.sentThrough = 0
   }
 
   /** Leaves the interview entirely, discarding turn history. */
@@ -529,8 +650,13 @@ export class InterviewSession extends EventEmitter {
    * have no position in a transcript that did not exist yet.
    */
   private anchor(message: AssistMessage): AssistMessage {
-    if (message.afterSequence !== null) return message
-    return { ...message, afterSequence: this.sentThrough > 0 ? this.sentThrough : null }
+    if (message.afterPosition !== null) {
+      // A server mark is a sequence inside the current session; the record is
+      // ordered by position, so it is read through the segment that carries it.
+      const at = this.segments.find((segment) => segment.sequence === message.afterPosition)
+      return { ...message, afterPosition: at?.position ?? this.sentPosition }
+    }
+    return { ...message, afterPosition: this.sentPosition > 0 ? this.sentPosition : null }
   }
 
   /** Segment offsets are session-relative; TeamBridge stores wall-clock times. */
@@ -580,6 +706,13 @@ export class InterviewSession extends EventEmitter {
    * timeline against itself.
    */
   private applyRealtimeEvent(event: RealtimeEvent): void {
+    // A subscription that has moved on can still deliver one more frame from
+    // where it was. Nothing about a finished session should touch this one.
+    if (this.serverSessionId !== null && event.sessionId !== this.serverSessionId) {
+      log.debug({ type: event.type, sessionId: event.sessionId }, 'ignoring a stale event')
+      return
+    }
+
     switch (event.type) {
       case 'assist_message.created': {
         const message = toMessage(event.data)
@@ -681,6 +814,6 @@ function toMessage(data: unknown): AssistMessage | null {
     questionId: raw.question_id ?? null,
     sender: { name: raw.sender?.name ?? null },
     createdAt: raw.created_at ?? new Date().toISOString(),
-    afterSequence: raw.after_transcript_sequence ?? null,
+    afterPosition: raw.after_transcript_sequence ?? null,
   }
 }

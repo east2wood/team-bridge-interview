@@ -24,7 +24,7 @@ const TIER = { segment: 0, message: 1, checkpoint: 2 } as const
 
 interface Placed {
   item: TimelineItem
-  /** Transcript position: the ordering everything is hung off. */
+  /** Place in the record: the ordering everything is hung off. */
   seq: number
   tier: number
   /** Only a tie-breaker. Two clocks are being compared here, so it is last. */
@@ -32,14 +32,14 @@ interface Placed {
 }
 
 /**
- * Orders by transcript sequence rather than by time.
+ * Orders by place in the transcript rather than by time.
  *
- * Sequence is the one ordering every party agrees on: it is assigned here,
- * survives the upload, and is what the server answers in terms of. Timestamps
- * come from two machines — speech time is measured locally, a message is
- * stamped by the server — so within the same second they can disagree, which
- * is exactly the case that matters when someone types while the interviewer
- * is still talking.
+ * Position is assigned here, in the order things actually happened, and never
+ * restarts — not even when a new context opens a new server session, where the
+ * upload sequence begins again at one. Timestamps could not do this job:
+ * speech is timed locally and a message is stamped by the server, so within
+ * the same second they disagree, which is exactly the case that matters when
+ * somebody types while the interviewer is still talking.
  */
 export function buildTimeline(live: LiveSessionState): TimelineItem[] {
   const segments = live.segments
@@ -47,17 +47,17 @@ export function buildTimeline(live: LiveSessionState): TimelineItem[] {
   // The transcript as it stood at a given moment. Used only for events with no
   // sequence of their own — a typed question, mostly.
   const positionAt = (time: number): number => {
-    let seq = 0
+    let at = 0
     for (const segment of segments) {
-      if (segment.startedAt <= time && segment.sequence > seq) seq = segment.sequence
+      if (segment.startedAt <= time && segment.position > at) at = segment.position
     }
-    return seq
+    return at
   }
 
   const placed: Placed[] = [
     ...segments.map((segment) => ({
-      item: { kind: 'segment' as const, id: `s${segment.sequence}`, segment },
-      seq: segment.sequence,
+      item: { kind: 'segment' as const, id: `s${segment.position}`, segment },
+      seq: segment.position,
       tier: TIER.segment,
       at: segment.startedAt,
     })),
@@ -66,7 +66,7 @@ export function buildTimeline(live: LiveSessionState): TimelineItem[] {
       item: { kind: 'message' as const, id: `m${message.id}`, message },
       // Unanchored means it predates this run's transcript, so it belongs
       // above all of it rather than at an arbitrary point inside it.
-      seq: message.afterSequence ?? 0,
+      seq: message.afterPosition ?? 0,
       tier: TIER.message,
       at: Date.parse(message.createdAt) || 0,
     })),
@@ -79,7 +79,7 @@ export function buildTimeline(live: LiveSessionState): TimelineItem[] {
       .filter((turn) => turn.status !== 'recording')
       .map((turn) => ({
         item: { kind: 'checkpoint' as const, id: turn.id, turn },
-        seq: turn.context?.throughSequence ?? positionAt(turn.endedAt ?? turn.startedAt),
+        seq: turn.throughPosition ?? positionAt(turn.endedAt ?? turn.startedAt),
         tier: TIER.checkpoint,
         at: turn.endedAt ?? turn.startedAt,
       })),
@@ -90,4 +90,20 @@ export function buildTimeline(live: LiveSessionState): TimelineItem[] {
   )
 
   return placed.map((p) => p.item)
+}
+
+/**
+ * The stretch of transcript no checkpoint has closed yet.
+ *
+ * What the next answer will be built from, and so what Copy context copies and
+ * what starting a new one leaves behind. Blank-line separated to match how the
+ * server joins segments, so a copy of it reads the same as what it answered.
+ */
+export function currentContext(live: LiveSessionState): string {
+  const closed = live.turns.reduce((last, turn) => Math.max(last, turn.throughPosition ?? 0), 0)
+  return live.segments
+    .filter((segment) => segment.position > closed)
+    .map((segment) => segment.text)
+    .join('\n\n')
+    .trim()
 }

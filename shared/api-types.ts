@@ -70,14 +70,13 @@ export interface AssistMessage {
   sender: { name: string | null }
   createdAt: string
   /**
-   * The last transcript sequence TeamBridge had when this was written — so it
-   * can be dropped back into the transcript where it happened.
+   * Where in the transcript this was written, so it can be dropped back in.
    *
    * Stamped on arrival from what had been uploaded by then, which is exactly
    * what the sender could have been reading. Null for anything that arrived
-   * before this run started, which has no position in a transcript it predates.
+   * before this run started, which has no place in a transcript it predates.
    */
-  afterSequence: number | null
+  afterPosition: number | null
 }
 
 export type RealtimeStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting'
@@ -180,7 +179,15 @@ export interface StreamingAnswer {
  * segments either side of it are separate things.
  */
 export interface TranscriptItem {
-  /** Upload identity, and the ordering everything else is placed against. */
+  /**
+   * Place in the interview. Assigned here, monotonic, and never reset.
+   *
+   * Distinct from `sequence` because starting a new context opens a new server
+   * session, and sequences begin again at one inside it. Ordering the record by
+   * something that restarts would fold the second half into the first.
+   */
+  position: number
+  /** Upload identity within its session; what the server answers in terms of. */
   sequence: number
   text: string
   /** When it was said, not when it was transcribed or uploaded. */
@@ -210,6 +217,8 @@ export interface CaptureTurn {
   }
   /** Where this turn's segment window opened; closed into `context` on Answer. */
   fromSequence?: number
+  /** Where the turn ends in the record. What places it on the timeline. */
+  throughPosition?: number
   /**
    * The part of the transcript already sent to TeamBridge.
    *
@@ -231,6 +240,8 @@ export interface CaptureTurn {
 
 export type TurnStatus =
   | 'recording'
+  /** The context was closed and a new one started, without asking anything. */
+  | 'reset'
   | 'transcribing'
   | 'generating'
   | 'completed'
@@ -256,13 +267,13 @@ export interface LiveSessionState {
   turns: CaptureTurn[]
   /** Transcript sync, so an unreachable server is visible rather than silent. */
   upload: { pending: number; failing: boolean; reason?: string }
-  /** True while a manual Send is draining transcription and uploading. */
-  sending: boolean
+  /** True while transcription is being drained and pushed to TeamBridge. */
+  flushing: boolean
   /** Messages sent from the web by people watching this round. */
-  /** Committed interviewer speech, oldest first. */
+  /** Committed speech, oldest first. */
   segments: TranscriptItem[]
   /** Everything up to here has reached TeamBridge. */
-  sentThroughSequence: number
+  sentThroughPosition: number
   messages: AssistMessage[]
   /** Live connection state. Kept apart from listening: audio may be fine. */
   realtime: RealtimeStatus

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AssistMessage, CaptureTurn, LiveSessionState, TranscriptItem } from '@shared/api-types'
 import { formatTime } from './InterviewList'
-import { buildTimeline } from './timeline'
+import { buildTimeline, currentContext } from './timeline'
 
 /**
  * One interview as a single continuous conversation.
@@ -31,7 +31,7 @@ export function InterviewDetail({
   // if the reader is already at the bottom. Yanking them away from an answer
   // they are re-reading is worse than a missed scroll.
   const tail = [
-    `${live.segments.length}:${live.sentThroughSequence}`,
+    `${live.segments.length}:${live.sentThroughPosition}`,
     ...live.turns.map((t) => `${t.question ?? ''}${t.answer.length}${t.status}`),
     ...live.messages.map((m) => `m${m.id}`),
   ].join('|')
@@ -110,7 +110,7 @@ export function InterviewDetail({
               <Line
                 key={item.id}
                 segment={item.segment}
-                sent={item.segment.sequence <= live.sentThroughSequence}
+                sent={item.segment.position <= live.sentThroughPosition}
               />
             ) : item.kind === 'message' ? (
               <WebMessage key={item.id} message={item.message} />
@@ -212,6 +212,14 @@ function Checkpoint({ turn }: { turn: CaptureTurn }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(turn.question ?? '')
   const [copied, setCopied] = useState<'question' | 'answer' | null>(null)
+
+  if (turn.status === 'reset') {
+    return (
+      <div className="newcontext">
+        <span>New context</span>
+      </div>
+    )
+  }
 
   if (turn.status === 'empty') {
     return (
@@ -379,6 +387,10 @@ function Tail({ live, partial }: { live: LiveSessionState; partial: string }) {
  */
 function Composer({ live }: { live: LiveSessionState }) {
   const [text, setText] = useState('')
+  const [copied, setCopied] = useState(false)
+  // What the next answer would be built from — so copying it and leaving it
+  // behind are the same text.
+  const context = currentContext(live)
 
   const send = () => {
     if (!text.trim()) return
@@ -420,12 +432,25 @@ function Composer({ live }: { live: LiveSessionState }) {
         <span className="grow" />
         <button onClick={() => void window.tb.stopListening()}>Stop</button>
         <button
-          className="sendbtn"
-          disabled={!answering || live.sending}
-          title="Send what has been heard so far, so TeamBridge can read the question"
-          onClick={() => void window.tb.sendTranscript()}
+          disabled={!context}
+          title="Copy everything said since the last answer"
+          onClick={() => {
+            void navigator.clipboard.writeText(context)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+          }}
         >
-          {live.sending ? 'Sending…' : 'Send'}
+          {copied ? 'Copied' : 'Copy context'}
+        </button>
+        <button
+          disabled={!answering || live.flushing || !context}
+          title="Copy what has piled up, then start answering from a clean slate"
+          onClick={() => {
+            void navigator.clipboard.writeText(context)
+            void window.tb.newContext()
+          }}
+        >
+          {live.flushing ? 'Closing…' : 'New context'}
         </button>
         <button
           className="primary answerbtn"

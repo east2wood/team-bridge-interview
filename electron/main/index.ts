@@ -255,7 +255,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.liveGet, () => live.snapshot())
   ipcMain.on(IPC.liveSelect, (_e, interview) => live.selectInterview(interview))
   ipcMain.handle(IPC.liveStart, () => live.startListening())
-  ipcMain.handle(IPC.liveSend, () => live.sendTranscript())
+  ipcMain.handle(IPC.liveNewContext, () => live.newContext())
   ipcMain.handle(IPC.liveAnswer, () => live.answer())
   ipcMain.handle(IPC.liveStop, () => live.stopListening())
   ipcMain.handle(IPC.liveClose, () => live.close())

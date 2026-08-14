@@ -20,7 +20,7 @@ export const IPC = {
   liveGet: 'live:get',
   liveSelect: 'live:select',
   liveStart: 'live:start',
-  liveSend: 'live:send',
+  liveNewContext: 'live:new-context',
   liveAnswer: 'live:answer',
   liveStop: 'live:stop',
   liveClose: 'live:close',

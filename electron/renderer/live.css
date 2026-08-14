@@ -482,11 +482,6 @@ button.answerbtn {
   color: var(--fg);
 }
 
-button.sendbtn {
-  min-width: 96px;
-  padding: 10px 16px;
-}
-
 /* ---------------------------- the transcript ---------------------------- */
 
 /* The bulk of the page. Nothing boxed at this frequency: a hundred bordered
@@ -578,6 +573,29 @@ button.sendbtn {
 /* A whole reply to read out carries more weight than a passing steer. */
 .web--note .web__text {
   color: var(--muted);
+}
+
+/* --------------------------- context boundary --------------------------- */
+
+/* A context closed without asking anything. Quieter than a checkpoint: nothing
+   was answered here, the slate was just wiped. */
+.newcontext {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.newcontext::before,
+.newcontext::after {
+  content: '';
+  flex: 1 1 auto;
+  border-top: 1px dashed var(--border);
 }
 
 /* ------------------------------ checkpoint ------------------------------ */
