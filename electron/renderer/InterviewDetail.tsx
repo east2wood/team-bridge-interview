@@ -89,6 +89,11 @@ export function InterviewDetail({
           </span>
         </div>
         <span className="grow" />
+        {live.realtime === 'reconnecting' && (
+          <span className="sync" title="Messages from the web may be delayed">
+            ◌ Web sync reconnecting
+          </span>
+        )}
         {live.upload.pending > 0 && (
           <span className={`sync ${live.upload.failing ? 'sync--failing' : ''}`}>
             {live.upload.failing

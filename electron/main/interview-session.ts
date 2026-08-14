@@ -4,6 +4,8 @@ import type {
   AnswerEvent,
   AssistMessage,
   CaptureTurn,
+  RealtimeEvent,
+  RealtimeStatus,
   DetectedQuestion,
   Interview,
   LiveSessionState,
@@ -15,6 +17,7 @@ import { child } from '@services/logger'
 import { extractQuestion } from '@services/interview/question-extractor'
 import type { TranscriptUploader } from '@services/teambridge/transcript-uploader'
 import type { MessagePoller } from '@services/teambridge/message-poller'
+import type { RealtimeClient } from '@services/teambridge/realtime-client'
 import type { SessionManager } from './session-manager'
 import type { AnswerManager } from './answer-manager'
 
@@ -69,6 +72,7 @@ export class InterviewSession extends EventEmitter {
   private autoSendTimer: NodeJS.Timeout | null = null
   private autoSending = false
   private messages: AssistMessage[] = []
+  private realtime: RealtimeStatus = 'disconnected'
   private upload = { pending: 0, failing: false } as {
     pending: number
     failing: boolean
@@ -80,9 +84,24 @@ export class InterviewSession extends EventEmitter {
     private readonly answers: AnswerManager,
     private readonly uploader: TranscriptUploader,
     private readonly poller: MessagePoller,
+    private readonly live: RealtimeClient,
     private readonly clientFor: () => TeamBridgeClient | null,
   ) {
     super()
+
+    live.on('status', (status: RealtimeStatus) => {
+      this.realtime = status
+      // The socket carries messages faster than polling can; when it is up the
+      // poll becomes a safety net rather than the delivery mechanism.
+      this.poller.setInterval(status === 'connected' ? 'slow' : 'fast')
+      this.publish()
+    })
+
+    // A socket that just came up missed whatever happened while it was down.
+    // Catching up is an ordinary API call, which is exactly what the poller is.
+    live.on('resync', () => this.poller.pollNow())
+
+    live.on('event', (event: RealtimeEvent) => this.applyRealtimeEvent(event))
 
     // Append-only, and by id: the poller never returns one twice, so nothing
     // above the newest message can move and the reader's place is kept.
@@ -146,6 +165,7 @@ export class InterviewSession extends EventEmitter {
       detectedQuestion: this.detectedQuestion,
       sending: this.sending,
       messages: this.messages,
+      realtime: this.realtime,
       ...(this.error ? { error: this.error } : {}),
     }
   }
@@ -202,6 +222,7 @@ export class InterviewSession extends EventEmitter {
         this.sequence = 0
         this.detectedQuestion = null
         this.uploader.open(created.id)
+        this.live.connect(created.id)
         log.info({ serverSessionId: created.id }, 'opened TeamBridge session')
       } catch (err) {
         // Local capture is still worth having, so this is a warning rather
@@ -467,6 +488,7 @@ export class InterviewSession extends EventEmitter {
       }
     }
 
+    this.live.disconnect()
     this.uploader.close()
     this.serverSessionId = null
     this.sequence = 0
@@ -523,6 +545,50 @@ export class InterviewSession extends EventEmitter {
     return undefined
   }
 
+  /**
+   * Applies a live notification.
+   *
+   * Only `assist_message.created` is genuinely new here — everything else
+   * describes something this app just wrote and already has on screen, so it
+   * is reconciliation at most. Treating those as new items would duplicate the
+   * timeline against itself.
+   */
+  private applyRealtimeEvent(event: RealtimeEvent): void {
+    switch (event.type) {
+      case 'assist_message.created': {
+        const message = toMessage(event.data)
+        if (!message) return
+        if (this.messages.some((m) => m.id === message.id)) return
+        this.messages = [...this.messages, message]
+        this.publish()
+        this.emit('web-message', message)
+        return
+      }
+
+      case 'session.completed': {
+        // The run was finished elsewhere. Stop listening rather than carrying
+        // on writing into something the server considers closed.
+        if (this.status === 'recording' || this.status === 'finalizing') {
+          log.warn('the session was completed elsewhere; stopping')
+          void this.stopListening()
+        }
+        return
+      }
+
+      case 'transcript.created':
+      case 'question_answer.created':
+      case 'question_answer.updated':
+      case 'session.started':
+      case 'session.updated':
+        // Ours, and already displayed. Kept as acknowledgements only.
+        log.debug({ type: event.type }, 'realtime acknowledgement')
+        return
+
+      default:
+        log.debug({ type: event.type }, 'ignoring unknown realtime event')
+    }
+  }
+
   private applyAnswerEvent(event: AnswerEvent): void {
     const turn = this.turns.find((t) => t.id === event.turnId)
     // A late event from a superseded turn must not touch a newer one.
@@ -564,5 +630,32 @@ export class InterviewSession extends EventEmitter {
     }
 
     this.publish()
+  }
+}
+
+/** Narrows a broadcast payload; anything malformed is dropped rather than shown. */
+function toMessage(data: unknown): AssistMessage | null {
+  const raw = data as {
+    id?: number
+    question_id?: number | null
+    question?: string | null
+    type?: string
+    source?: string
+    content?: string
+    sender?: { name?: string | null }
+    created_at?: string
+  } | null
+
+  if (!raw || typeof raw.id !== 'number' || !raw.content) return null
+
+  return {
+    id: raw.id,
+    type: raw.type === 'answer' ? 'answer' : 'note',
+    source: raw.source ?? 'web',
+    content: raw.content,
+    question: raw.question ?? null,
+    questionId: raw.question_id ?? null,
+    sender: { name: raw.sender?.name ?? null },
+    createdAt: raw.created_at ?? new Date().toISOString(),
   }
 }

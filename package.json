@@ -19,6 +19,7 @@
     "pino": "^9.5.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "ws": "^8.21.3",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
@@ -26,6 +27,7 @@
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^33.3.0",
     "electron-builder": "^25.1.8",
@@ -36,12 +38,33 @@
   "build": {
     "appId": "com.teambridge.assist",
     "productName": "TeamBridge Assist",
-    "directories": { "output": "release", "buildResources": "build" },
-    "files": ["out/**/*", "build/*.png"],
-    "extraResources": [
-      { "from": "services/transcription/worker", "to": "worker", "filter": ["**/*.py", "requirements.txt"] }
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "build/*.png"
     ],
-    "win": { "target": ["nsis"], "icon": "build/icon.png" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+    "extraResources": [
+      {
+        "from": "services/transcription/worker",
+        "to": "worker",
+        "filter": [
+          "**/*.py",
+          "requirements.txt"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

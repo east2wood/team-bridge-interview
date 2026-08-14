@@ -8,6 +8,7 @@ import {
   Menu,
   nativeImage,
   nativeTheme,
+  Notification,
   session,
   Tray,
 } from 'electron'
@@ -32,6 +33,7 @@ import { WhisperService } from '@services/transcription/whisper-service'
 import { TeamBridgeClient } from '@services/teambridge/teambridge-client'
 import { TranscriptUploader } from '@services/teambridge/transcript-uploader'
 import { MessagePoller } from '@services/teambridge/message-poller'
+import { RealtimeClient } from '@services/teambridge/realtime-client'
 import { SessionManager } from './session-manager'
 import { AnswerManager } from './answer-manager'
 import { InterviewSession } from './interview-session'
@@ -56,6 +58,7 @@ let sessions: SessionManager
 let answers: AnswerManager
 let uploader: TranscriptUploader
 let poller: MessagePoller
+let realtime: RealtimeClient
 let live: InterviewSession
 let lastFinishedSessionId: string | null = null
 
@@ -82,7 +85,13 @@ async function bootstrap(): Promise<void> {
   answers = new AnswerManager(teamBridgeClient)
   uploader = new TranscriptUploader(teamBridgeClient)
   poller = new MessagePoller(teamBridgeClient)
-  live = new InterviewSession(sessions, answers, uploader, poller, teamBridgeClient)
+  realtime = new RealtimeClient(() => {
+    const store = settings()
+    const url = store.get('serverUrl')
+    const token = store.getApiKey()
+    return url && token ? { baseUrl: url, token } : null
+  })
+  live = new InterviewSession(sessions, answers, uploader, poller, realtime, teamBridgeClient)
 
   wireEvents()
   registerIpc()
@@ -180,6 +189,17 @@ function wireEvents(): void {
   sessions.on('segment', (payload) => send(IPC.onSegment, payload))
   live.on('state', (state) => send(IPC.onLiveState, state))
   live.on('notice', (notice) => send(IPC.onNotice, notice))
+  live.on('web-message', (message: { sender: { name: string | null } }) => {
+    // Worth a nudge only when the window is not being looked at; in view it
+    // is already in the timeline.
+    const win = getMainWindow()
+    if (win && !win.isFocused() && Notification.isSupported()) {
+      new Notification({
+        title: 'TeamBridge Assist',
+        body: `New message from ${message.sender.name ?? 'a colleague'}`,
+      }).show()
+    }
+  })
   live.on('capture-start', (channels: AudioChannel[]) =>
     send(IPC.onCaptureCommand, { action: 'start', channels } satisfies CaptureCommand),
   )

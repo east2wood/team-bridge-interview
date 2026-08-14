@@ -83,6 +83,21 @@ export interface AssistMessage {
   createdAt: string
 }
 
+export type RealtimeStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting'
+
+/**
+ * One notification from the live socket.
+ *
+ * The envelope the server sends: what happened, which run, and the thing
+ * itself. Deliberately loose about `data` — it is narrowed per event type at
+ * the point it is handled, not here.
+ */
+export interface RealtimeEvent {
+  type: string
+  sessionId: number
+  data: unknown
+}
+
 /** How the question was arrived at, according to the server. */
 export type QuestionSource = 'detected' | 'manual' | 'derived'
 
@@ -228,5 +243,7 @@ export interface LiveSessionState {
   sending: boolean
   /** Messages sent from the web by people watching this round. */
   messages: AssistMessage[]
+  /** Live connection state. Kept apart from listening: audio may be fine. */
+  realtime: RealtimeStatus
   error?: string
 }

@@ -11,6 +11,16 @@ const log = child('messages')
  */
 const INTERVAL_MS = 3000
 
+/**
+ * Interval once the socket is up.
+ *
+ * The socket delivers messages the moment they are sent, so polling stops
+ * being the delivery mechanism and becomes a safety net against a broadcast
+ * that never arrived. Rare, but the transcript is durable and the notification
+ * is not, so it is worth still asking occasionally.
+ */
+const SAFETY_NET_MS = 30_000
+
 /** Backoff while the server is unreachable, so a outage is not hammered. */
 const FAILURE_BACKOFF_MS = 15_000
 
@@ -27,6 +37,7 @@ export class MessagePoller extends EventEmitter {
   private lastId = 0
   private inFlight = false
   private failing = false
+  private mode: 'fast' | 'slow' = 'fast'
 
   constructor(private readonly clientFor: () => TeamBridgeClient | null) {
     super()
@@ -41,7 +52,24 @@ export class MessagePoller extends EventEmitter {
     // Ask immediately: anything sent before the app opened the round is
     // waiting, and a first tick three seconds late looks broken.
     void this.tick()
-    this.schedule(INTERVAL_MS)
+    this.schedule(this.delay())
+  }
+
+  /** Polls quickly when the socket is down, rarely when it is carrying events. */
+  setInterval(mode: 'fast' | 'slow'): void {
+    if (this.mode === mode) return
+    this.mode = mode
+    if (this.timer) this.schedule(this.delay())
+  }
+
+  /** An immediate ask, used to catch up after a reconnect. */
+  pollNow(): void {
+    if (this.interviewId === null) return
+    void this.tick()
+  }
+
+  private delay(): number {
+    return this.mode === 'slow' ? SAFETY_NET_MS : INTERVAL_MS
   }
 
   stop(): void {
@@ -61,12 +89,12 @@ export class MessagePoller extends EventEmitter {
     const client = this.clientFor()
 
     if (interviewId === null || !client) {
-      this.schedule(INTERVAL_MS)
+      this.schedule(this.delay())
       return
     }
     // A slow response must not stack requests behind it.
     if (this.inFlight) {
-      this.schedule(INTERVAL_MS)
+      this.schedule(this.delay())
       return
     }
 
@@ -79,7 +107,7 @@ export class MessagePoller extends EventEmitter {
         this.emit('messages', messages)
       }
       this.failing = false
-      this.schedule(INTERVAL_MS)
+      this.schedule(this.delay())
     } catch (err) {
       if (!this.failing) {
         this.failing = true
