@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AssistMessage, CaptureTurn, LiveSessionState } from '@shared/api-types'
+import type { AssistMessage, CaptureTurn, LiveSessionState, TranscriptItem } from '@shared/api-types'
 import { formatTime } from './InterviewList'
+import { buildTimeline } from './timeline'
 
 /**
  * One interview as a single continuous conversation.
@@ -30,6 +31,7 @@ export function InterviewDetail({
   // if the reader is already at the bottom. Yanking them away from an answer
   // they are re-reading is worse than a missed scroll.
   const tail = [
+    `${live.segments.length}:${live.sentThroughSequence}`,
     ...live.turns.map((t) => `${t.question ?? ''}${t.answer.length}${t.status}`),
     ...live.messages.map((m) => `m${m.id}`),
   ].join('|')
@@ -60,23 +62,7 @@ export function InterviewDetail({
 
   const started = live.status !== 'idle'
 
-  // Turns and messages share one timeline, ordered by when they happened —
-  // a colleague's steer belongs where it was sent, not in a sidebar.
-  const items: TimelineItem[] = [
-    ...live.turns
-      // Everything except the turn still being captured, which Tail draws.
-      // Not "has a question": the question is the server's answer to what was
-      // asked, so waiting for it would hide the turn until the stream starts —
-      // and hide it forever if the request is refused before that.
-      .filter((t) => t.status !== 'recording')
-      .map((turn) => ({ kind: 'turn' as const, at: turn.startedAt, id: turn.id, turn })),
-    ...live.messages.map((message) => ({
-      kind: 'message' as const,
-      at: Date.parse(message.createdAt) || Date.now(),
-      id: `m${message.id}`,
-      message,
-    })),
-  ].sort((a, b) => a.at - b.at)
+  const items = buildTimeline(live)
 
   return (
     <div className="chat">
@@ -120,10 +106,16 @@ export function InterviewDetail({
           )}
 
           {items.map((item) =>
-            item.kind === 'turn' ? (
-              <Turn key={item.id} turn={item.turn} />
+            item.kind === 'segment' ? (
+              <Line
+                key={item.id}
+                segment={item.segment}
+                sent={item.segment.sequence <= live.sentThroughSequence}
+              />
+            ) : item.kind === 'message' ? (
+              <WebMessage key={item.id} message={item.message} />
             ) : (
-              <Message key={item.id} message={item.message} />
+              <Checkpoint key={item.id} turn={item.turn} />
             ),
           )}
 
@@ -142,19 +134,84 @@ export function InterviewDetail({
   )
 }
 
-/* ------------------------------ one turn ------------------------------- */
+/* ---------------------------- transcript ------------------------------- */
 
 /**
- * One answered turn: what TeamBridge received, then what it generated.
+ * One committed stretch of speech.
  *
- * Context and question share a single box because they are one thing — the
- * captured turn as the server understood it. The answer sits outside it, open,
- * so the page does not become a stack of cards.
+ * Deliberately plain: this is the bulk of the page, and anything boxed or
+ * bordered at this frequency turns the record into a list of cards. Speech not
+ * yet uploaded is dimmed rather than held back, so the reader can see the
+ * difference between "said" and "TeamBridge has it" without the text moving.
  */
-function Turn({ turn }: { turn: CaptureTurn }) {
+function Line({ segment, sent }: { segment: TranscriptItem; sent: boolean }) {
+  return (
+    <div
+      className={[
+        'line',
+        segment.speaker === 'candidate' ? 'line--self' : '',
+        sent ? '' : 'line--pending',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      title={sent ? undefined : 'Not yet sent to TeamBridge'}
+    >
+      <span className="line__time muted small">{clock(segment.startedAt)}</span>
+      <p className="line__text">{segment.text}</p>
+    </div>
+  )
+}
+
+/* ---------------------------- web message ------------------------------ */
+
+/**
+ * A message from someone watching the round, at the point they sent it.
+ *
+ * Its position is the information: it says what the sender could see when they
+ * wrote it. Marked as written rather than generated, because the whole value of
+ * showing it next to an answer is knowing which of the two you are reading.
+ */
+function WebMessage({ message }: { message: AssistMessage }) {
+  const [copied, setCopied] = useState(false)
+  const who = message.sender.name ?? 'a colleague'
+
+  return (
+    <article className={`web web--${message.type}`}>
+      <header className="web__head">
+        <span className="web__from">TeamBridge Web · {who}</span>
+        <span className="grow" />
+        <span className="muted small">{clock(Date.parse(message.createdAt) || Date.now())}</span>
+        <button
+          className="link"
+          onClick={() => {
+            void navigator.clipboard.writeText(message.content)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+          }}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </header>
+      <p className="web__kind">{message.type === 'answer' ? 'Suggested answer' : 'Note'}</p>
+      {message.question && <p className="web__about muted small">on: {message.question}</p>}
+      <p className="web__text">{message.content}</p>
+    </article>
+  )
+}
+
+/* ---------------------------- checkpoint -------------------------------- */
+
+/**
+ * Where an answer was asked for, and what came back.
+ *
+ * No context box: the transcript it was answered from is the segments directly
+ * above, which is the point of one continuous timeline. The range is still
+ * shown, so what the server used can be checked against what was read.
+ */
+function Checkpoint({ turn }: { turn: CaptureTurn }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(turn.question ?? '')
-  const [copied, setCopied] = useState<'source' | 'answer' | null>(null)
+  const [copied, setCopied] = useState<'question' | 'answer' | null>(null)
 
   if (turn.status === 'empty') {
     return (
@@ -166,83 +223,75 @@ function Turn({ turn }: { turn: CaptureTurn }) {
     )
   }
 
+  // Where TeamBridge could not isolate a question it answers the turn as a
+  // whole and hands the context back as the question. That is the transcript
+  // immediately above, so printing it again under a heading would claim it
+  // found something it did not.
   const context = turn.context?.text?.trim()
-  // When TeamBridge finds no question it answers the turn as a whole, and says
-  // so by returning the context back as the question. Printing it twice under
-  // two headings would suggest it isolated something when it did not.
   const question = turn.question?.trim()
   const asked = question && question !== context ? question : null
 
-  const flash = (which: 'source' | 'answer') => {
+  const flash = (which: 'question' | 'answer') => {
     setCopied(which)
     setTimeout(() => setCopied(null), 1500)
   }
 
-  const copySource = () => {
-    // Labelled, because pasted into a ticket or a message the two halves need
-    // to stay distinguishable.
-    const parts = [
-      context ? ['Context:', context].join('\n') : null,
-      asked ? ['Question:', asked].join('\n') : null,
-    ].filter(Boolean)
-    void navigator.clipboard.writeText(parts.join('\n\n'))
-    flash('source')
-  }
-
   return (
-    <article className="turn">
-      <header className="turn__time muted small">{clock(turn.startedAt)}</header>
-
-      <section className="source">
-        <div className="source__tools">
-          {turn.context && (
-            <span className="muted small range">
-              {turn.context.fromSequence}–{turn.context.throughSequence}
-            </span>
-          )}
-          {!editing && (
-            <button
-              className="link"
-              onClick={() => {
-                setDraft(turn.question ?? '')
-                setEditing(true)
-              }}
-            >
-              Edit
-            </button>
-          )}
-          <button className="link" onClick={copySource}>
-            {copied === 'source' ? 'Copied' : 'Copy'}
+    <article className="checkpoint">
+      <header className="checkpoint__head">
+        <h3 className="checkpoint__label">Question</h3>
+        {turn.context && (
+          <span className="muted small range" title="Transcript answered from">
+            {turn.context.fromSequence}–{turn.context.throughSequence}
+          </span>
+        )}
+        <span className="grow" />
+        <span className="muted small">{clock(turn.endedAt ?? turn.startedAt)}</span>
+        {!editing && (
+          <button
+            className="link"
+            onClick={() => {
+              setDraft(turn.question ?? '')
+              setEditing(true)
+            }}
+          >
+            Edit
           </button>
+        )}
+        {asked && (
+          <button
+            className="link"
+            onClick={() => {
+              void navigator.clipboard.writeText(asked)
+              flash('question')
+            }}
+          >
+            {copied === 'question' ? 'Copied' : 'Copy'}
+          </button>
+        )}
+      </header>
+
+      {editing ? (
+        <div className="row">
+          <input value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck={false} />
+          <button
+            className="primary"
+            onClick={() => {
+              setEditing(false)
+              void window.tb.regenerate(turn.id, draft)
+            }}
+          >
+            Regenerate
+          </button>
+          <button onClick={() => setEditing(false)}>Cancel</button>
         </div>
-
-        {context && (
-          <>
-            <h3>Context</h3>
-            <p className="context">{context}</p>
-          </>
-        )}
-
-        {asked && <h3 className="source__qlabel">Question</h3>}
-
-        {editing ? (
-          <div className="row">
-            <input value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck={false} />
-            <button
-              className="primary"
-              onClick={() => {
-                setEditing(false)
-                void window.tb.regenerate(turn.id, draft)
-              }}
-            >
-              Regenerate
-            </button>
-            <button onClick={() => setEditing(false)}>Cancel</button>
-          </div>
-        ) : (
-          asked && <p className="question">{asked}</p>
-        )}
-      </section>
+      ) : asked ? (
+        <p className="question">{asked}</p>
+      ) : (
+        <p className="question question--whole muted">
+          Answered everything said since the last checkpoint.
+        </p>
+      )}
 
       <section className="generated">
         <header className="generated__head">
@@ -286,99 +335,38 @@ function Turn({ turn }: { turn: CaptureTurn }) {
   )
 }
 
-type TimelineItem =
-  | { kind: 'turn'; at: number; id: string; turn: CaptureTurn }
-  | { kind: 'message'; at: number; id: string; message: AssistMessage }
-
-/**
- * A message from someone watching the round.
- *
- * Labelled by person and marked as written rather than generated: the whole
- * value of showing it beside an answer is knowing which of the two you are
- * reading. An 'answer' is a whole reply to read out, a 'note' is a steer to
- * work in, so they are weighted differently.
- */
-function Message({ message }: { message: AssistMessage }) {
-  const [copied, setCopied] = useState(false)
-  const who = message.sender.name ?? 'A colleague'
-
-  return (
-    <article className={`human human--${message.type}`}>
-      <header className="human__head">
-        <span className="human__who">{who}</span>
-        <span className="human__kind">{message.type === 'answer' ? 'suggested answer' : 'note'}</span>
-        <span className="muted small">{clock(Date.parse(message.createdAt) || Date.now())}</span>
-        <span className="grow" />
-        <button
-          className="link"
-          onClick={() => {
-            void navigator.clipboard.writeText(message.content)
-            setCopied(true)
-            setTimeout(() => setCopied(false), 1500)
-          }}
-        >
-          {copied ? 'Copied' : 'Copy'}
-        </button>
-      </header>
-      {message.question && <p className="human__about muted small">on: {message.question}</p>}
-      <p className="human__text">{message.content}</p>
-    </article>
-  )
-}
-
 /* --------------------------- live tail ---------------------------- */
 
 /**
- * The current activity, always last, so the page never visually resets.
+ * What is being heard right now, always last so the page never resets.
  *
- * Split by what the server actually has. Transcript that has reached
- * TeamBridge appears in a context box — the same box it will become when
- * Answer freezes it — while Listening holds only what has been heard here and
- * not yet sent. The line between them is the honest one: it moves when an
- * upload succeeds, not when it is started.
+ * Only the phrase in progress. Anything committed has already taken its place
+ * in the timeline above — dimmed until it reaches TeamBridge — so repeating it
+ * here would show the same words twice and move them when they were sent.
  */
 function Tail({ live, partial }: { live: LiveSessionState; partial: string }) {
-  const turn = live.activeTurn
-  const sent = turn?.sentTranscript?.trim() ?? ''
-  const heard = turn?.transcript ?? ''
-  // sentTranscript is always a prefix of transcript, so the remainder is what
-  // is still only local.
-  const unsent = [heard.startsWith(sent) ? heard.slice(sent.length).trim() : heard, partial]
-    .filter(Boolean)
-    .join('\n\n')
-    .trim()
-
   if (live.status === 'idle' || live.status === 'error') return null
 
   return (
-    <>
-      {sent && (
-        <section className="source source--live">
-          <h3>Context</h3>
-          <p className="context">{sent}</p>
-        </section>
+    <div className="tail">
+      {live.status === 'recording' && (
+        <span className="tail__label">
+          <span className="dot dot--live" aria-hidden /> Listening
+        </span>
       )}
+      {live.status === 'finalizing' && <span className="tail__label">Processing question…</span>}
+      {live.status === 'starting' && <span className="tail__label">Starting…</span>}
 
-      <div className="tail">
-        {live.status === 'recording' && (
-          <span className="tail__label">
-            <span className="dot dot--live" aria-hidden /> Listening
-          </span>
-        )}
-        {live.status === 'finalizing' && <span className="tail__label">Processing question…</span>}
-        {live.status === 'starting' && <span className="tail__label">Starting…</span>}
-
-        {unsent ? (
-          <p className="muted tail__text">{unsent}</p>
-        ) : (
-          live.status === 'recording' && (
-            <p className="muted tail__text">
-              {sent ? 'Waiting for the next sentence…' : 'Building context…'}
-            </p>
-          )
-        )}
-      </div>
-    </>
+      {partial ? (
+        <p className="muted tail__text">{partial}</p>
+      ) : (
+        live.status === 'recording' && (
+          <p className="muted tail__text">
+            {live.segments.length > 0 ? 'Waiting for the next sentence…' : 'Building context…'}
+          </p>
+        )
+      )}
+    </div>
   )
 }
 

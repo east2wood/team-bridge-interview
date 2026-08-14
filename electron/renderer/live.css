@@ -487,79 +487,152 @@ button.sendbtn {
   padding: 10px 16px;
 }
 
-/* ------------------------------ a turn --------------------------------- */
+/* ---------------------------- the transcript ---------------------------- */
 
-.turn {
-  margin-bottom: 42px;
-}
-
-.turn__time {
-  margin-bottom: 10px;
+/* The bulk of the page. Nothing boxed at this frequency: a hundred bordered
+   segments is a list of cards, not a record of a conversation. */
+.line {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 14px;
   margin-left: var(--turn-offset);
 }
 
-/* What TeamBridge received. One box, because context and question are one
-   captured turn — not two things that happen to be adjacent. */
-.source {
-  position: relative;
-  margin-left: var(--turn-offset);
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel);
+.line__time {
+  flex: none;
+  width: 62px;
+  padding-top: 2px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
-.source h3 {
-  margin: 0 0 6px;
+.line__text {
+  margin: 0;
+  line-height: 1.6;
+  user-select: text;
+}
+
+/* Said here, not yet on the server. Dimmed rather than withheld, so nothing
+   moves when the upload lands — only its weight changes. */
+.line--pending .line__text {
+  color: var(--muted);
+}
+
+/* The user's own half, when the microphone is being captured too. Secondary
+   because the interview is what the other party asked. */
+.line--self .line__text {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* ---------------------- a message from the web ------------------------- */
+
+/* Compact and inset: it interrupts the transcript, so it has to read as an
+   aside rather than as the next thing said. Deliberately unlike a generated
+   answer — a person wrote this, and knowing which of the two you are reading
+   is most of knowing whether to trust it. */
+.web {
+  margin: 18px 0 18px calc(var(--turn-offset) + 74px);
+  margin-right: var(--turn-offset);
+  padding: 10px 14px;
+  border-left: 3px solid var(--tag-mic);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--tag-mic) 8%, var(--panel));
+}
+
+.web__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+
+.web__from {
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tag-mic);
+}
+
+.web__kind {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
-.source__qlabel {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--accent) !important;
+.web__about {
+  margin: 0 0 6px;
+  font-style: italic;
 }
 
-.source p {
+.web__text {
   margin: 0;
+  line-height: 1.6;
+  white-space: pre-wrap;
   user-select: text;
 }
 
-.source .context {
-  margin-bottom: 16px;
+/* A whole reply to read out carries more weight than a passing steer. */
+.web--note .web__text {
   color: var(--muted);
-  font-size: 12.5px;
-  line-height: 1.55;
-  white-space: pre-wrap;
+}
+
+/* ------------------------------ checkpoint ------------------------------ */
+
+/* Where an answer was asked for. A rule across the transcript, because that is
+   what it is: a line drawn through the conversation at a moment in it. */
+.checkpoint {
+  margin: 26px 0 30px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.checkpoint__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  margin-left: var(--turn-offset);
+}
+
+.checkpoint__label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
 }
 
 /* The question is the thing to scan for. */
-.source .question {
+.checkpoint .question {
+  margin: 0;
+  margin-left: var(--turn-offset);
   font-size: 16px;
   font-weight: 650;
   line-height: 1.5;
+  user-select: text;
 }
 
-.source__tools {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.checkpoint .question--whole {
+  font-size: 13px;
+  font-weight: 400;
+  font-style: italic;
+}
+
+.checkpoint .row {
+  margin-left: var(--turn-offset);
 }
 
 .range {
   font-variant-numeric: tabular-nums;
 }
 
-/* What TeamBridge generated. Deliberately unboxed: two cards per turn and the
-   page is a stack of cards again. */
+/* What TeamBridge generated. Deliberately unboxed: a card here and the page is
+   a stack of cards again. */
 .generated {
   margin-top: 18px;
   margin-right: var(--turn-offset);
@@ -591,72 +664,8 @@ button.sendbtn {
   :root {
     --turn-offset: 0px;
   }
-}
 
-/* ------------------------- a message from a person --------------------- */
-
-/* Deliberately unlike a generated answer: a person wrote this, and knowing
-   which of the two you are reading is most of knowing whether to trust it. */
-.human {
-  margin-bottom: 42px;
-  margin-right: var(--turn-offset);
-  padding: 12px 14px;
-  border-left: 3px solid var(--tag-mic);
-  border-radius: 0 8px 8px 0;
-  background: var(--panel);
-}
-
-.human__head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.human__who {
-  font-weight: 700;
-  color: var(--tag-mic);
-}
-
-.human__kind {
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.human__about {
-  margin: 0 0 6px;
-  font-style: italic;
-}
-
-.human__text {
-  margin: 0;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  user-select: text;
-}
-
-/* A whole reply to read out carries more weight than a passing steer. */
-.human--answer .human__text {
-  font-size: 14.5px;
-}
-
-.human--note .human__text {
-  color: var(--muted);
-}
-
-/* The context box while it is still filling. Dashed because it is not settled
-   yet: pressing Answer is what turns it into the permanent one. */
-.source--live {
-  margin-bottom: 10px;
-  border-style: dashed;
-  background: transparent;
-}
-
-.source--live .question {
-  font-size: 15px;
+  .web {
+    margin-left: 16px;
+  }
 }

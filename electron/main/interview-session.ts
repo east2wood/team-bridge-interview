@@ -6,6 +6,7 @@ import type {
   CaptureTurn,
   RealtimeEvent,
   RealtimeStatus,
+  TranscriptItem,
   Interview,
   LiveSessionState,
   LiveStatus,
@@ -69,6 +70,8 @@ export class InterviewSession extends EventEmitter {
   private autoSendTimer: NodeJS.Timeout | null = null
   private autoSending = false
   private messages: AssistMessage[] = []
+  private segments: TranscriptItem[] = []
+  private sentThrough = 0
   private realtime: RealtimeStatus = 'disconnected'
   private upload = { pending: 0, failing: false } as {
     pending: number
@@ -104,7 +107,7 @@ export class InterviewSession extends EventEmitter {
     // above the newest message can move and the reader's place is kept.
     poller.on('messages', (incoming: AssistMessage[]) => {
       const known = new Set(this.messages.map((m) => m.id))
-      const fresh = incoming.filter((m) => !known.has(m.id))
+      const fresh = incoming.filter((m) => !known.has(m.id)).map((m) => this.anchor(m))
       if (fresh.length === 0) return
       this.messages = [...this.messages, ...fresh]
       this.publish()
@@ -112,6 +115,11 @@ export class InterviewSession extends EventEmitter {
 
     uploader.on('status', (status: typeof this.upload) => {
       this.upload = status
+      // An empty queue means every sequence handed out so far is on the
+      // server. Taken from here rather than from Send, so the transcript stops
+      // looking unsent the moment it is not — the queue drains on its own
+      // between checkpoints.
+      if (status.pending === 0) this.sentThrough = this.sequence
       this.publish()
     })
 
@@ -128,6 +136,18 @@ export class InterviewSession extends EventEmitter {
         confidence: segment.confidence,
         speaker: segment.channel === 'system' ? 'interviewer' : 'candidate',
       })
+
+      // Both halves go on the timeline. The server answers from both, so a
+      // record showing only one would not be the conversation it answered.
+      this.segments = [
+        ...this.segments,
+        {
+          sequence: this.sequence,
+          text: segment.text,
+          startedAt: this.startedAtEpoch(segment.startMs),
+          speaker: segment.channel === 'system' ? 'interviewer' : 'candidate',
+        },
+      ]
 
       if (!this.activeTurn || segment.channel !== 'system') return
       // One block per segment, separated the way the server separates them in
@@ -156,6 +176,8 @@ export class InterviewSession extends EventEmitter {
       turnStartedAt: this.turnStartedAt,
       activeTurn: this.activeTurn,
       turns: this.turns,
+      segments: this.segments,
+      sentThroughSequence: this.sentThrough,
       upload: this.upload,
       sending: this.sending,
       messages: this.messages,
@@ -306,6 +328,9 @@ export class InterviewSession extends EventEmitter {
   private markSent(): void {
     if (!this.activeTurn) return
     this.activeTurn.sentTranscript = this.activeTurn.transcript
+    // Everything queued has drained, so every sequence handed out so far is on
+    // the server. This is what a message arriving now was written against.
+    this.sentThrough = this.sequence
     this.publish()
   }
 
@@ -477,6 +502,7 @@ export class InterviewSession extends EventEmitter {
     this.uploader.close()
     this.serverSessionId = null
     this.sequence = 0
+    this.sentThrough = 0
   }
 
   /** Leaves the interview entirely, discarding turn history. */
@@ -484,12 +510,28 @@ export class InterviewSession extends EventEmitter {
     await this.stopListening()
     this.poller.stop()
     this.messages = []
+    this.segments = []
     this.interview = null
     this.turns = []
     this.publish()
   }
 
   /* ------------------------------ internals ----------------------------- */
+
+  /**
+   * Places a message in the transcript.
+   *
+   * The server's own mark is used when it sends one. Otherwise the message is
+   * pinned to the last sequence known to have reached TeamBridge, because that
+   * is the most the sender could have been looking at when they wrote it —
+   * which is both the honest answer and one that needs no clock shared with a
+   * machine somewhere else. Messages that predate this run get nothing: they
+   * have no position in a transcript that did not exist yet.
+   */
+  private anchor(message: AssistMessage): AssistMessage {
+    if (message.afterSequence !== null) return message
+    return { ...message, afterSequence: this.sentThrough > 0 ? this.sentThrough : null }
+  }
 
   /** Segment offsets are session-relative; TeamBridge stores wall-clock times. */
   private startedAtEpoch(offsetMs: number): number {
@@ -543,7 +585,7 @@ export class InterviewSession extends EventEmitter {
         const message = toMessage(event.data)
         if (!message) return
         if (this.messages.some((m) => m.id === message.id)) return
-        this.messages = [...this.messages, message]
+        this.messages = [...this.messages, this.anchor(message)]
         this.publish()
         this.emit('web-message', message)
         return
@@ -625,6 +667,7 @@ function toMessage(data: unknown): AssistMessage | null {
     content?: string
     sender?: { name?: string | null }
     created_at?: string
+    after_transcript_sequence?: number | null
   } | null
 
   if (!raw || typeof raw.id !== 'number' || !raw.content) return null
@@ -638,5 +681,6 @@ function toMessage(data: unknown): AssistMessage | null {
     questionId: raw.question_id ?? null,
     sender: { name: raw.sender?.name ?? null },
     createdAt: raw.created_at ?? new Date().toISOString(),
+    afterSequence: raw.after_transcript_sequence ?? null,
   }
 }

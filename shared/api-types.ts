@@ -69,6 +69,15 @@ export interface AssistMessage {
   questionId: number | null
   sender: { name: string | null }
   createdAt: string
+  /**
+   * The last transcript sequence TeamBridge had when this was written — so it
+   * can be dropped back into the transcript where it happened.
+   *
+   * Stamped on arrival from what had been uploaded by then, which is exactly
+   * what the sender could have been reading. Null for anything that arrived
+   * before this run started, which has no position in a transcript it predates.
+   */
+  afterSequence: number | null
 }
 
 export type RealtimeStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting'
@@ -162,6 +171,23 @@ export interface StreamingAnswer {
  * detection — deciding whether a question has finished — because the user has
  * just said so.
  */
+/**
+ * One committed stretch of interviewer speech, as its own timeline entry.
+ *
+ * Kept as a list rather than one growing string because the conversation is
+ * not only the words: a colleague's message belongs at the point in the
+ * transcript where it was sent, and that point can only be named if the
+ * segments either side of it are separate things.
+ */
+export interface TranscriptItem {
+  /** Upload identity, and the ordering everything else is placed against. */
+  sequence: number
+  text: string
+  /** When it was said, not when it was transcribed or uploaded. */
+  startedAt: number
+  speaker: 'interviewer' | 'candidate'
+}
+
 export interface CaptureTurn {
   id: string
   index: number
@@ -233,6 +259,10 @@ export interface LiveSessionState {
   /** True while a manual Send is draining transcription and uploading. */
   sending: boolean
   /** Messages sent from the web by people watching this round. */
+  /** Committed interviewer speech, oldest first. */
+  segments: TranscriptItem[]
+  /** Everything up to here has reached TeamBridge. */
+  sentThroughSequence: number
   messages: AssistMessage[]
   /** Live connection state. Kept apart from listening: audio may be fine. */
   realtime: RealtimeStatus

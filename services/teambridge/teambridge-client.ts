@@ -84,6 +84,9 @@ export class TeamBridgeClient {
       questionId: m.question_id ?? null,
       sender: { name: m.sender?.name ?? null },
       createdAt: m.created_at ?? new Date().toISOString(),
+      // Only if the server marks where in the transcript it was written. It
+      // does not today, and the app places the message itself when it does not.
+      afterSequence: m.after_transcript_sequence ?? null,
     }))
   }
 
@@ -367,6 +370,8 @@ interface RawMessage {
   content?: string
   sender?: { name?: string | null }
   created_at?: string
+  /** Not sent today; read so that adding it server-side needs no client change. */
+  after_transcript_sequence?: number | null
 }
 
 interface RawTurn {
