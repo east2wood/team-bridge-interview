@@ -546,19 +546,10 @@ button.answerbtn {
   margin-bottom: 0;
 }
 
-/* The mark and the words share a baseline, so LIVE reads as the beginning of
-   the line rather than as a heading over it. Long speech wraps under itself,
-   not under the mark. */
-.line--live .line__text {
-  display: flex;
-  align-items: baseline;
-  gap: 14px;
-  color: var(--muted);
-}
-
+/* The mark sits in the time column, right-aligned like the times it stands in
+   for, so the words start on the transcript's own column. */
 .live__mark {
   display: inline-flex;
-  flex: none;
   align-items: center;
   gap: 6px;
   font-size: 11px;
@@ -569,6 +560,7 @@ button.answerbtn {
 }
 
 .live__words {
+  color: var(--muted);
   font-style: italic;
 }
 

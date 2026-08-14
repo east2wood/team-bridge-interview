@@ -379,10 +379,10 @@ function Checkpoint({ turn }: { turn: CaptureTurn }) {
  * is about to become: when the segment commits, the same words appear in the
  * same place, permanent, and the live line starts empty again.
  *
- * The time column is left empty and the LIVE mark sits with the words rather
- * than where a timestamp would go. In the timestamp column it read as a label
- * for the row — a status the line was filed under — instead of the line being
- * a continuation of the transcript above it.
+ * The mark takes the place of the time, which is the one thing a line still
+ * being said does not have. That leaves the words starting exactly where every
+ * line above them starts, so the column reads unbroken from the first thing
+ * said to the words still arriving.
  */
 function Tail({ live, partials }: { live: LiveSessionState; partials: Partials }) {
   if (live.status === 'idle' || live.status === 'error') return null
@@ -414,7 +414,7 @@ function Tail({ live, partials }: { live: LiveSessionState; partials: Partials }
   )
 }
 
-/** One live line: an empty gutter, then the mark and the words on one baseline. */
+/** One live line: the mark where the time goes, the words in the words' column. */
 function LiveRow({
   text,
   self = false,
@@ -427,15 +427,14 @@ function LiveRow({
 }) {
   return (
     <div className={`line line--live ${self ? 'line--self' : ''}`}>
-      <span className="line__time" aria-hidden />
-      <p className="line__text">
+      <span className="line__time">
         <span className="live__mark">
           <span className="dot dot--live" aria-hidden /> Live
         </span>
-        <span className="live__words">
-          {text}
-          {speaking && <span className="caret" aria-hidden />}
-        </span>
+      </span>
+      <p className="line__text live__words">
+        {text}
+        {speaking && <span className="caret" aria-hidden />}
       </p>
     </div>
   )
