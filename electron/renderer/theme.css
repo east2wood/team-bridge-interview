@@ -77,6 +77,12 @@ button:hover:not(:disabled) {
   background: var(--control-hover);
 }
 
+/* For a control that shares a line with a status rather than heading a row. */
+button.compact {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
 button:focus-visible,
 input:focus-visible,
 select:focus-visible {

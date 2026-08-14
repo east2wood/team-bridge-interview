@@ -288,7 +288,8 @@ export interface LiveSessionState {
   interview: Interview | null
   /** The TeamBridge session id; answers are nested under it. */
   serverSessionId: number | null
-  turnStartedAt: number | null
+  /** When this run of listening began. The turn's own start is on the turn. */
+  sessionStartedAt: number | null
   activeTurn: CaptureTurn | null
   turns: CaptureTurn[]
   /** Transcript sync, so an unreachable server is visible rather than silent. */

@@ -72,6 +72,10 @@ export function InterviewDetail({
   }
 
   const started = live.status !== 'idle'
+  // A run that is actually going, as opposed to one that stopped on an error:
+  // there is nothing to stop and nothing to count.
+  const running =
+    live.status === 'starting' || live.status === 'recording' || live.status === 'finalizing'
 
   const items = buildTimeline(live)
 
@@ -101,6 +105,12 @@ export function InterviewDetail({
               ? `${live.upload.reason ?? 'Sync failing'} · ${live.upload.pending} waiting`
               : `Syncing ${live.upload.pending}`}
           </span>
+        )}
+        {running && live.sessionStartedAt && <Elapsed since={live.sessionStartedAt} />}
+        {running && (
+          <button className="compact" onClick={() => void window.tb.stopListening()}>
+            Stop
+          </button>
         )}
         <StatusPill live={live} level={level} />
       </header>
@@ -482,8 +492,6 @@ function Composer({ live }: { live: LiveSessionState }) {
       </div>
 
       <div className="composer__row">
-        {live.turnStartedAt && answering && <Elapsed since={live.turnStartedAt} />}
-        <button onClick={() => void window.tb.stopListening()}>Stop</button>
         <button
           className="secondary"
           disabled={!answering || !context}

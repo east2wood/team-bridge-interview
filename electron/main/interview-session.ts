@@ -64,7 +64,6 @@ export class InterviewSession extends EventEmitter {
   private serverSessionId: number | null = null
   private turns: CaptureTurn[] = []
   private activeTurn: CaptureTurn | null = null
-  private turnStartedAt: number | null = null
   private error: string | undefined
   private sessionStartedAt: number | null = null
   private sequence = 0
@@ -201,7 +200,7 @@ export class InterviewSession extends EventEmitter {
       status: this.status,
       interview: this.interview,
       serverSessionId: this.serverSessionId,
-      turnStartedAt: this.turnStartedAt,
+      sessionStartedAt: this.sessionStartedAt,
       activeTurn: this.activeTurn,
       turns: this.turns,
       segments: this.segments,
@@ -557,7 +556,6 @@ export class InterviewSession extends EventEmitter {
     await this.uploader.flush()
     await this.endServerSession('ended')
 
-    this.turnStartedAt = null
     this.setStatus('idle')
   }
 
@@ -697,7 +695,6 @@ export class InterviewSession extends EventEmitter {
   private beginTurn(): void {
     const turn = this.blankTurn()
     this.activeTurn = turn
-    this.turnStartedAt = turn.startedAt
     this.turns = [...this.turns, turn]
     this.publish()
   }
