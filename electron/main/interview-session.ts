@@ -354,14 +354,17 @@ export class InterviewSession extends EventEmitter {
   }
 
   /**
-   * Draws a line under the conversation so far and starts a new one.
+   * Draws a line under what has been collected and starts a fresh turn.
    *
-   * A boundary in the record, not on the server: the transcript stays, and
-   * what an answer is built from is still the server's own read-mark, which
-   * only answering moves. This is for when the round changes subject and the
-   * page should say so.
+   * For a stretch that should not be answered — small talk, the end of the
+   * last topic — so the next answer is built from what comes after it rather
+   * than from everything since the last one.
+   *
+   * Deliberately small. Listening does not stop, the session is untouched, the
+   * transcript stays where it is and so does every answer already given: the
+   * only thing that moves is where this turn begins.
    */
-  newConversation(): void {
+  newTurn(): void {
     if (this.status !== 'recording') return
 
     const turn = this.activeTurn
@@ -378,23 +381,23 @@ export class InterviewSession extends EventEmitter {
 
     this.beginTurn()
     this.publish()
-    log.info({ position: this.position }, 'started a new conversation')
+    log.info({ position: this.position }, 'started a new turn')
   }
 
   /**
-   * Marks the end of a conversation that was answered.
+   * Marks the end of a turn that was answered.
    *
-   * An answer is where one exchange finishes: the server has moved its
-   * read-mark past everything it covered, so whatever is said next is a new
-   * conversation whether or not anybody says so.
+   * An answer is where a turn finishes: the server has moved its read-mark
+   * past everything it covered, so whatever is said next belongs to the next
+   * turn whether or not anybody says so.
    */
-  private closeConversation(answered: CaptureTurn): void {
+  private closeTurn(answered: CaptureTurn): void {
     const at = answered.throughPosition ?? this.position
     // Regenerating finishes the same turn again, and one exchange gets one
     // line under it.
     if (this.turns.some((t) => t.status === 'boundary' && t.throughPosition === at)) return
 
-    const marker = this.newTurn()
+    const marker = this.blankTurn()
     marker.status = 'boundary'
     marker.endedAt = Date.now()
     marker.throughPosition = at
@@ -489,7 +492,7 @@ export class InterviewSession extends EventEmitter {
     const text = question.trim()
     if (!text || this.serverSessionId === null) return
 
-    const turn = this.newTurn()
+    const turn = this.blankTurn()
     turn.question = text
     turn.transcript = text
     turn.endedAt = Date.now()
@@ -692,14 +695,15 @@ export class InterviewSession extends EventEmitter {
   }
 
   private beginTurn(): void {
-    const turn = this.newTurn()
+    const turn = this.blankTurn()
     this.activeTurn = turn
     this.turnStartedAt = turn.startedAt
     this.turns = [...this.turns, turn]
     this.publish()
   }
 
-  private newTurn(): CaptureTurn {
+  /** A turn object, empty and unattached. */
+  private blankTurn(): CaptureTurn {
     return {
       id: randomUUID(),
       index: this.turns.length + 1,
@@ -800,7 +804,7 @@ export class InterviewSession extends EventEmitter {
       case 'done':
         turn.questionId = event.questionId ?? turn.questionId
         turn.status = 'completed'
-        this.closeConversation(turn)
+        this.closeTurn(turn)
         break
       case 'error':
         // The partial answer stays: it is often most of a usable one, and

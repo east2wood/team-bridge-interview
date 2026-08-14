@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { AssistMessage, CaptureTurn, LiveSessionState, TranscriptItem } from '@shared/api-types'
 import type { AudioChannel } from '@shared/types'
 import { formatTime } from './InterviewList'
-import { buildTimeline, currentContext } from './timeline'
+import { buildTimeline, currentContext, turnText } from './timeline'
 
 /**
  * One interview as a single continuous conversation.
@@ -226,8 +226,8 @@ function Checkpoint({ turn }: { turn: CaptureTurn }) {
 
   if (turn.status === 'boundary') {
     return (
-      <div className="conversation-line">
-        <span>New conversation</span>
+      <div className="turn-line">
+        <span>New turn</span>
       </div>
     )
   }
@@ -435,9 +435,10 @@ function LiveRow({
 function Composer({ live }: { live: LiveSessionState }) {
   const [text, setText] = useState('')
   const [copied, setCopied] = useState(false)
-  // What the next answer would be built from — so copying it and leaving it
-  // behind are the same text.
+  // What the next answer would be built from: what a new turn leaves behind,
+  // and what there has to be some of for that to mean anything.
   const context = currentContext(live)
+  const turn = turnText(live)
 
   const send = () => {
     if (!text.trim()) return
@@ -476,29 +477,33 @@ function Composer({ live }: { live: LiveSessionState }) {
 
       <div className="composer__row">
         {live.turnStartedAt && answering && <Elapsed since={live.turnStartedAt} />}
-        <span className="grow" />
         <button onClick={() => void window.tb.stopListening()}>Stop</button>
         <button
-          disabled={!context}
-          title="Copy everything said since the last answer"
+          className="secondary"
+          disabled={!answering || !context}
+          title="Leave what has been said out of the next answer and start collecting again"
           onClick={() => {
-            void navigator.clipboard.writeText(context)
+            // Copied on the way past: this is the one action that puts the
+            // context beyond reach, so it is the one that should not be able
+            // to lose it.
+            void navigator.clipboard.writeText(turn)
+            void window.tb.newTurn()
+          }}
+        >
+          New turn
+        </button>
+        <button
+          disabled={!turn}
+          title="Copy this turn: what was said, and the question and answer if there are any"
+          onClick={() => {
+            void navigator.clipboard.writeText(turn)
             setCopied(true)
             setTimeout(() => setCopied(false), 1500)
           }}
         >
-          {copied ? 'Copied' : 'Copy context'}
+          {copied ? 'Copied' : 'Copy turn'}
         </button>
-        <button
-          disabled={!answering || !context}
-          title="Copy what has been said, then start a new conversation in the record"
-          onClick={() => {
-            void navigator.clipboard.writeText(context)
-            void window.tb.newConversation()
-          }}
-        >
-          New conversation
-        </button>
+        <span className="grow" />
         <button
           className="primary answerbtn"
           disabled={!answering}

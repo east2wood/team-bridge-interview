@@ -92,18 +92,50 @@ export function buildTimeline(live: LiveSessionState): TimelineItem[] {
   return placed.map((p) => p.item)
 }
 
+/** How the server joins segments, so a copy reads the same as what it answered. */
+const SEPARATOR = '\n\n'
+
 /**
- * The stretch of transcript no checkpoint has closed yet.
+ * The stretch of transcript no turn has closed yet.
  *
- * What the next answer will be built from, and so what Copy context copies and
- * what starting a new one leaves behind. Blank-line separated to match how the
- * server joins segments, so a copy of it reads the same as what it answered.
+ * What the next answer will be built from, and so what starting a new turn
+ * leaves behind.
  */
 export function currentContext(live: LiveSessionState): string {
   const closed = live.turns.reduce((last, turn) => Math.max(last, turn.throughPosition ?? 0), 0)
   return live.segments
     .filter((segment) => segment.position > closed)
     .map((segment) => segment.text)
-    .join('\n\n')
+    .join(SEPARATOR)
     .trim()
+}
+
+/**
+ * The turn as text, for pasting somewhere else.
+ *
+ * Labelled, because in a ticket or a message the parts have to stay
+ * distinguishable. The open turn where there is one — that is the turn the
+ * button sits next to — and otherwise the one just finished, which is what
+ * "this turn" means in the seconds after an answer lands and before anybody
+ * has said anything new.
+ */
+export function turnText(live: LiveSessionState): string {
+  const context = currentContext(live)
+  if (context) return ['Context:', context].join('\n')
+
+  const answered = [...live.turns]
+    .reverse()
+    .find((turn) => turn.status !== 'boundary' && (turn.question || turn.answer))
+  if (!answered) return ''
+
+  const labelled = (label: string, text?: string) =>
+    text?.trim() ? [label, text.trim()].join('\n') : null
+
+  return [
+    labelled('Context:', answered.context?.text),
+    labelled('Question:', answered.question),
+    labelled('Answer:', answered.answer),
+  ]
+    .filter(Boolean)
+    .join(SEPARATOR)
 }

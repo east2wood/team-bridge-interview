@@ -266,7 +266,7 @@ export interface CaptureTurn {
 
 export type TurnStatus =
   | 'recording'
-  /** Not a turn: the line under one conversation where the next begins. */
+  /** Not a turn of its own: the line under one turn where the next begins. */
   | 'boundary'
   | 'transcribing'
   | 'generating'

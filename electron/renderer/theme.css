@@ -89,6 +89,18 @@ button:disabled {
   cursor: default;
 }
 
+/* Between the plain controls and the primary one. New turn earns it by being
+   the only button here that puts something out of reach. */
+button.secondary {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: transparent;
+}
+
+button.secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 button.primary {
   background: var(--accent);
   border-color: transparent;

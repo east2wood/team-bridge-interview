@@ -56,7 +56,7 @@ const api = {
   selectInterview: (interview: Interview | null) => ipcRenderer.send(IPC.liveSelect, interview),
   startListening: (): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke(IPC.liveStart),
-  newConversation: (): Promise<void> => ipcRenderer.invoke(IPC.liveNewConversation),
+  newTurn: (): Promise<void> => ipcRenderer.invoke(IPC.liveNewTurn),
   answerNow: (): Promise<void> => ipcRenderer.invoke(IPC.liveAnswer),
   stopListening: (): Promise<void> => ipcRenderer.invoke(IPC.liveStop),
   closeInterview: (): Promise<void> => ipcRenderer.invoke(IPC.liveClose),

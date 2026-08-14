@@ -603,11 +603,11 @@ button.answerbtn {
   color: var(--muted);
 }
 
-/* ------------------------ conversation boundary ------------------------- */
+/* ---------------------------- turn boundary ----------------------------- */
 
-/* Where one exchange ends and the next begins. Quieter than a checkpoint:
-   nothing was answered here, the subject just changed. */
-.conversation-line {
+/* Where one turn ends and the next begins. Quieter than a checkpoint: nothing
+   was answered here, the collecting just started again. */
+.turn-line {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -619,8 +619,8 @@ button.answerbtn {
   text-transform: uppercase;
 }
 
-.conversation-line::before,
-.conversation-line::after {
+.turn-line::before,
+.turn-line::after {
   content: '';
   flex: 1 1 auto;
   border-top: 1px dashed var(--border);
