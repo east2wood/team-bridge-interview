@@ -66,7 +66,6 @@ export class InterviewSession extends EventEmitter {
   private error: string | undefined
   private sessionStartedAt: number | null = null
   private sequence = 0
-  private flushing = false
   private autoSendTimer: NodeJS.Timeout | null = null
   private autoSending = false
   private messages: AssistMessage[] = []
@@ -182,7 +181,6 @@ export class InterviewSession extends EventEmitter {
       segments: this.segments,
       sentThroughPosition: this.sentPosition,
       upload: this.upload,
-      flushing: this.flushing,
       messages: this.messages,
       realtime: this.realtime,
       ...(this.error ? { error: this.error } : {}),
@@ -266,7 +264,7 @@ export class InterviewSession extends EventEmitter {
   private async autoSend(): Promise<void> {
     // A manual send already in flight is doing the same work; a second one
     // would only queue behind it.
-    if (this.status !== 'recording' || this.flushing || this.autoSending) return
+    if (this.status !== 'recording' || this.autoSending) return
     this.autoSending = true
     try {
       await this.sessions.flushPending()
@@ -280,128 +278,51 @@ export class InterviewSession extends EventEmitter {
   }
 
   /**
-   * Gets everything heard so far onto the server and waits for it to land.
+   * Draws a line under the conversation so far and starts a new one.
    *
-   * Drains the worker so the last phrase is transcribed, then waits on the
-   * upload queue. Bounded by the grace period: an operation that continues
-   * with slightly less on the server beats one that hangs.
+   * A boundary in the record, not on the server: the transcript stays, and
+   * what an answer is built from is still the server's own read-mark, which
+   * only answering moves. This is for when the round changes subject and the
+   * page should say so.
    */
-  private async flushToServer(): Promise<void> {
-    this.flushing = true
-    this.publish()
-    try {
-      await this.sessions.flushPending()
-      await this.uploader.flush(UPLOAD_GRACE_MS)
-      this.markSent()
-    } finally {
-      this.flushing = false
-      this.publish()
-    }
-  }
+  newConversation(): void {
+    if (this.status !== 'recording') return
 
-  /**
-   * Closes the current context and opens a new one, without asking anything.
-   *
-   * For when the round moves on and what has piled up is no longer what any
-   * answer should be built from. The transcript stays on screen — this is a
-   * boundary in the record, not a deletion — but the server is given a new
-   * session, because the context an answer is derived from is the session's
-   * own, and nothing short of a new one moves its read-mark without also
-   * generating an answer.
-   *
-   * Capture is never interrupted: the devices stay open across the swap, so
-   * nothing said during it is lost.
-   */
-  async newContext(): Promise<void> {
-    if (this.status !== 'recording' || this.flushing) return
-
-    // Get the closing context onto the server before the session it belongs to
-    // is finished, or the tail of it lands nowhere.
-    await this.flushToServer()
-
-    // The range belongs to the session being closed, so it is read before the
-    // swap resets the counter.
     const turn = this.activeTurn
-    const closing = turn
-      ? {
-          fromSequence: turn.fromSequence ?? 1,
-          throughSequence: this.sequence,
-          text: turn.transcript,
-        }
-      : null
-
-    // Nothing is marked locally until the server has somewhere else to put the
-    // transcript. Drawing the boundary on screen while the server still holds
-    // the old context would promise a clean slate the next answer would not
-    // honour.
-    if (!(await this.swapServerSession())) return
-
-    if (turn && closing) {
-      turn.status = 'reset'
+    if (turn) {
+      turn.status = 'boundary'
       turn.endedAt = Date.now()
-      // Read after the swap: anything said during it went to the old session,
-      // so it belongs above the boundary.
       turn.throughPosition = this.position
-      turn.context = closing
+      turn.context = {
+        fromSequence: turn.fromSequence ?? 1,
+        throughSequence: this.sequence,
+        text: turn.transcript,
+      }
     }
 
     this.beginTurn()
     this.publish()
-    log.info({ position: this.position }, 'started a new context')
+    log.info({ position: this.position }, 'started a new conversation')
   }
 
   /**
-   * Puts a fresh session in place of the current one.
+   * Marks the end of a conversation that was answered.
    *
-   * The replacement is opened *before* the old one is finished, and the two
-   * are never both absent: the uploader discards anything enqueued while it
-   * has no session, and capture does not pause for this, so a gap between them
-   * is speech that reaches the screen and never reaches the server.
-   *
-   * Ending the old run is therefore the last thing done and the least
-   * important — a run left open on the server is untidy, where a hole in the
-   * transcript is a wrong answer later.
+   * An answer is where one exchange finishes: the server has moved its
+   * read-mark past everything it covered, so whatever is said next is a new
+   * conversation whether or not anybody says so.
    */
-  private async swapServerSession(): Promise<boolean> {
-    const client = this.clientFor()
-    const previous = this.serverSessionId
-    // No server to disagree with: the boundary is local and that is all it
-    // could ever have been.
-    if (!client) return true
+  private closeConversation(answered: CaptureTurn): void {
+    const at = answered.throughPosition ?? this.position
+    // Regenerating finishes the same turn again, and one exchange gets one
+    // line under it.
+    if (this.turns.some((t) => t.status === 'boundary' && t.throughPosition === at)) return
 
-    try {
-      const created = await client.createSession({
-        interviewId: this.interview?.id ?? null,
-        audioSource: 'system',
-        transcriber: 'faster-whisper',
-      })
-      this.live.disconnect()
-      this.serverSessionId = created.id
-      this.sequence = 0
-      this.sentPosition = this.position
-      this.uploader.open(created.id)
-      this.live.connect(created.id)
-      log.info({ previous, serverSessionId: created.id }, 'swapped in a new TeamBridge session')
-    } catch (err) {
-      // The old session is still open and still being uploaded to, so the
-      // interview carries on — with the context it already had.
-      log.warn({ err }, 'could not open a replacement session; keeping the current one')
-      this.emit('notice', {
-        level: 'warn',
-        message:
-          'TeamBridge did not accept a new context. The interview is carrying on with the current one.',
-      })
-      return false
-    }
-
-    if (previous !== null) {
-      try {
-        await client.endSession(previous, 'ended')
-      } catch (err) {
-        log.warn({ err, previous }, 'could not finish the previous session')
-      }
-    }
-    return true
+    const marker = this.newTurn()
+    marker.status = 'boundary'
+    marker.endedAt = Date.now()
+    marker.throughPosition = at
+    this.turns = [...this.turns, marker]
   }
 
   /**
@@ -773,6 +694,7 @@ export class InterviewSession extends EventEmitter {
       case 'done':
         turn.questionId = event.questionId ?? turn.questionId
         turn.status = 'completed'
+        this.closeConversation(turn)
         break
       case 'error':
         // The partial answer stays: it is often most of a usable one, and

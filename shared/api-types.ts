@@ -240,8 +240,8 @@ export interface CaptureTurn {
 
 export type TurnStatus =
   | 'recording'
-  /** The context was closed and a new one started, without asking anything. */
-  | 'reset'
+  /** Not a turn: the line under one conversation where the next begins. */
+  | 'boundary'
   | 'transcribing'
   | 'generating'
   | 'completed'
@@ -267,8 +267,6 @@ export interface LiveSessionState {
   turns: CaptureTurn[]
   /** Transcript sync, so an unreachable server is visible rather than silent. */
   upload: { pending: number; failing: boolean; reason?: string }
-  /** True while transcription is being drained and pushed to TeamBridge. */
-  flushing: boolean
   /** Messages sent from the web by people watching this round. */
   /** Committed speech, oldest first. */
   segments: TranscriptItem[]

@@ -575,11 +575,11 @@ button.answerbtn {
   color: var(--muted);
 }
 
-/* --------------------------- context boundary --------------------------- */
+/* ------------------------ conversation boundary ------------------------- */
 
-/* A context closed without asking anything. Quieter than a checkpoint: nothing
-   was answered here, the slate was just wiped. */
-.newcontext {
+/* Where one exchange ends and the next begins. Quieter than a checkpoint:
+   nothing was answered here, the subject just changed. */
+.conversation-line {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -591,8 +591,8 @@ button.answerbtn {
   text-transform: uppercase;
 }
 
-.newcontext::before,
-.newcontext::after {
+.conversation-line::before,
+.conversation-line::after {
   content: '';
   flex: 1 1 auto;
   border-top: 1px dashed var(--border);

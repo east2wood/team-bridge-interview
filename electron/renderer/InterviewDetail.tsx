@@ -213,10 +213,10 @@ function Checkpoint({ turn }: { turn: CaptureTurn }) {
   const [draft, setDraft] = useState(turn.question ?? '')
   const [copied, setCopied] = useState<'question' | 'answer' | null>(null)
 
-  if (turn.status === 'reset') {
+  if (turn.status === 'boundary') {
     return (
-      <div className="newcontext">
-        <span>New context</span>
+      <div className="conversation-line">
+        <span>New conversation</span>
       </div>
     )
   }
@@ -443,14 +443,14 @@ function Composer({ live }: { live: LiveSessionState }) {
           {copied ? 'Copied' : 'Copy context'}
         </button>
         <button
-          disabled={!answering || live.flushing || !context}
-          title="Copy what has piled up, then start answering from a clean slate"
+          disabled={!answering || !context}
+          title="Copy what has been said, then start a new conversation in the record"
           onClick={() => {
             void navigator.clipboard.writeText(context)
-            void window.tb.newContext()
+            void window.tb.newConversation()
           }}
         >
-          {live.flushing ? 'Closing…' : 'New context'}
+          New conversation
         </button>
         <button
           className="primary answerbtn"
