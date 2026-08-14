@@ -620,3 +620,59 @@ button.sendbtn {
     --turn-offset: 0px;
   }
 }
+
+/* ------------------------- a message from a person --------------------- */
+
+/* Deliberately unlike a generated answer: a person wrote this, and knowing
+   which of the two you are reading is most of knowing whether to trust it. */
+.human {
+  margin-bottom: 42px;
+  margin-right: var(--turn-offset);
+  padding: 12px 14px;
+  border-left: 3px solid var(--tag-mic);
+  border-radius: 0 8px 8px 0;
+  background: var(--panel);
+}
+
+.human__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.human__who {
+  font-weight: 700;
+  color: var(--tag-mic);
+}
+
+.human__kind {
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.human__about {
+  margin: 0 0 6px;
+  font-style: italic;
+}
+
+.human__text {
+  margin: 0;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+/* A whole reply to read out carries more weight than a passing steer. */
+.human--answer .human__text {
+  font-size: 14.5px;
+}
+
+.human--note .human__text {
+  color: var(--muted);
+}

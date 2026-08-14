@@ -1,6 +1,7 @@
 import { net } from 'electron'
 import type {
   AnswerRequest,
+  AssistMessage,
   AssistSession,
   CreateSessionInput,
   DetectedQuestion,
@@ -61,6 +62,30 @@ export class TeamBridgeClient {
   async interviews(): Promise<Interview[]> {
     const body = await this.json<{ data: RawInterview[] }>('GET', '/api/v1/assist/interviews')
     return body.data.map(toInterview)
+  }
+
+  /**
+   * Messages sent from the web for this round, newest last.
+   *
+   * Asked for by id rather than by time: the id is something the app already
+   * has, and a clock it does not share is a clock it cannot compare against.
+   */
+  async messages(interviewId: number, after?: number): Promise<AssistMessage[]> {
+    const query = after ? `?after=${after}` : ''
+    const body = await this.json<{ messages: RawMessage[] }>(
+      'GET',
+      `/api/v1/assist/interviews/${interviewId}/messages${query}`,
+    )
+    return body.messages.map((m) => ({
+      id: m.id,
+      type: m.type === 'answer' ? 'answer' : 'note',
+      source: m.source ?? 'web',
+      content: m.content ?? '',
+      question: m.question ?? null,
+      questionId: m.question_id ?? null,
+      sender: { name: m.sender?.name ?? null },
+      createdAt: m.created_at ?? new Date().toISOString(),
+    }))
   }
 
   async createSession(input: CreateSessionInput = {}): Promise<AssistSession> {
@@ -313,6 +338,17 @@ interface RawInterview {
   position: { title: string | null }
   company: { name: string | null }
   candidate?: { id: number; name: string } | null
+}
+
+interface RawMessage {
+  id: number
+  question_id?: number | null
+  question?: string | null
+  type?: string
+  source?: string
+  content?: string
+  sender?: { name?: string | null }
+  created_at?: string
 }
 
 interface RawTurn {

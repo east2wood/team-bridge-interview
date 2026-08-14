@@ -63,6 +63,26 @@ export interface DetectedQuestion {
   confidence: number | null
 }
 
+/**
+ * Something a colleague watching the round sent to the assistant.
+ *
+ * The other half of what the app shows, and deliberately not mixed in with
+ * generated answers: one is what a model wrote and one is what a person wrote,
+ * and knowing which is most of knowing whether to trust it.
+ */
+export interface AssistMessage {
+  id: number
+  /** 'answer' is a whole reply to read out; 'note' is a steer to work in. */
+  type: 'answer' | 'note'
+  source: string
+  content: string
+  /** The question it was sent about, when it was sent about one. */
+  question: string | null
+  questionId: number | null
+  sender: { name: string | null }
+  createdAt: string
+}
+
 /** How the question was arrived at, according to the server. */
 export type QuestionSource = 'detected' | 'manual' | 'derived'
 
@@ -198,5 +218,7 @@ export interface LiveSessionState {
   detectedQuestion: DetectedQuestion | null
   /** True while a manual Send is draining transcription and uploading. */
   sending: boolean
+  /** Messages sent from the web by people watching this round. */
+  messages: AssistMessage[]
   error?: string
 }

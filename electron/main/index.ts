@@ -31,6 +31,7 @@ import * as repo from '@services/history/session-repo'
 import { WhisperService } from '@services/transcription/whisper-service'
 import { TeamBridgeClient } from '@services/teambridge/teambridge-client'
 import { TranscriptUploader } from '@services/teambridge/transcript-uploader'
+import { MessagePoller } from '@services/teambridge/message-poller'
 import { SessionManager } from './session-manager'
 import { AnswerManager } from './answer-manager'
 import { InterviewSession } from './interview-session'
@@ -54,6 +55,7 @@ let whisper: WhisperService
 let sessions: SessionManager
 let answers: AnswerManager
 let uploader: TranscriptUploader
+let poller: MessagePoller
 let live: InterviewSession
 let lastFinishedSessionId: string | null = null
 
@@ -79,7 +81,8 @@ async function bootstrap(): Promise<void> {
   sessions = new SessionManager(whisper)
   answers = new AnswerManager(teamBridgeClient)
   uploader = new TranscriptUploader(teamBridgeClient)
-  live = new InterviewSession(sessions, answers, uploader, teamBridgeClient)
+  poller = new MessagePoller(teamBridgeClient)
+  live = new InterviewSession(sessions, answers, uploader, poller, teamBridgeClient)
 
   wireEvents()
   registerIpc()

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CaptureTurn, LiveSessionState } from '@shared/api-types'
+import type { AssistMessage, CaptureTurn, LiveSessionState } from '@shared/api-types'
 import { formatTime } from './InterviewList'
 
 /**
@@ -29,7 +29,10 @@ export function InterviewDetail({
   // Anything that lengthens the conversation should follow it down — but only
   // if the reader is already at the bottom. Yanking them away from an answer
   // they are re-reading is worse than a missed scroll.
-  const tail = live.turns.map((t) => `${t.question ?? ''}${t.answer.length}${t.status}`).join('|')
+  const tail = [
+    ...live.turns.map((t) => `${t.question ?? ''}${t.answer.length}${t.status}`),
+    ...live.messages.map((m) => `m${m.id}`),
+  ].join('|')
   useEffect(() => {
     const el = scroller.current
     if (!el) return
@@ -55,8 +58,21 @@ export function InterviewDetail({
     setUnread(false)
   }
 
-  const asked = live.turns.filter((t) => t.question || t.status === 'empty')
   const started = live.status !== 'idle'
+
+  // Turns and messages share one timeline, ordered by when they happened —
+  // a colleague's steer belongs where it was sent, not in a sidebar.
+  const items: TimelineItem[] = [
+    ...live.turns
+      .filter((t) => t.question || t.status === 'empty')
+      .map((turn) => ({ kind: 'turn' as const, at: turn.startedAt, id: turn.id, turn })),
+    ...live.messages.map((message) => ({
+      kind: 'message' as const,
+      at: Date.parse(message.createdAt) || Date.now(),
+      id: `m${message.id}`,
+      message,
+    })),
+  ].sort((a, b) => a.at - b.at)
 
   return (
     <div className="chat">
@@ -85,7 +101,7 @@ export function InterviewDetail({
 
       <div className="chat__scroll" ref={scroller} onScroll={onScroll}>
         <div className="thread">
-          {asked.length === 0 && !started && (
+          {items.length === 0 && !started && (
             <div className="ready">
               <strong>Ready for the interview</strong>
               <p className="muted">
@@ -94,9 +110,13 @@ export function InterviewDetail({
             </div>
           )}
 
-          {asked.map((turn) => (
-            <Turn key={turn.id} turn={turn} />
-          ))}
+          {items.map((item) =>
+            item.kind === 'turn' ? (
+              <Turn key={item.id} turn={item.turn} />
+            ) : (
+              <Message key={item.id} message={item.message} />
+            ),
+          )}
 
           <Tail live={live} partial={partial} />
         </div>
@@ -258,6 +278,46 @@ function Turn({ turn }: { turn: CaptureTurn }) {
           </p>
         )}
       </section>
+    </article>
+  )
+}
+
+type TimelineItem =
+  | { kind: 'turn'; at: number; id: string; turn: CaptureTurn }
+  | { kind: 'message'; at: number; id: string; message: AssistMessage }
+
+/**
+ * A message from someone watching the round.
+ *
+ * Labelled by person and marked as written rather than generated: the whole
+ * value of showing it beside an answer is knowing which of the two you are
+ * reading. An 'answer' is a whole reply to read out, a 'note' is a steer to
+ * work in, so they are weighted differently.
+ */
+function Message({ message }: { message: AssistMessage }) {
+  const [copied, setCopied] = useState(false)
+  const who = message.sender.name ?? 'A colleague'
+
+  return (
+    <article className={`human human--${message.type}`}>
+      <header className="human__head">
+        <span className="human__who">{who}</span>
+        <span className="human__kind">{message.type === 'answer' ? 'suggested answer' : 'note'}</span>
+        <span className="muted small">{clock(Date.parse(message.createdAt) || Date.now())}</span>
+        <span className="grow" />
+        <button
+          className="link"
+          onClick={() => {
+            void navigator.clipboard.writeText(message.content)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+          }}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </header>
+      {message.question && <p className="human__about muted small">on: {message.question}</p>}
+      <p className="human__text">{message.content}</p>
     </article>
   )
 }

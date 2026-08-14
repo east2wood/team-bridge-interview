@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import type {
   AnswerEvent,
+  AssistMessage,
   CaptureTurn,
   DetectedQuestion,
   Interview,
@@ -13,6 +14,7 @@ import type { TeamBridgeClient } from '@services/teambridge/teambridge-client'
 import { child } from '@services/logger'
 import { extractQuestion } from '@services/interview/question-extractor'
 import type { TranscriptUploader } from '@services/teambridge/transcript-uploader'
+import type { MessagePoller } from '@services/teambridge/message-poller'
 import type { SessionManager } from './session-manager'
 import type { AnswerManager } from './answer-manager'
 
@@ -66,6 +68,7 @@ export class InterviewSession extends EventEmitter {
   private sending = false
   private autoSendTimer: NodeJS.Timeout | null = null
   private autoSending = false
+  private messages: AssistMessage[] = []
   private upload = { pending: 0, failing: false } as {
     pending: number
     failing: boolean
@@ -76,9 +79,20 @@ export class InterviewSession extends EventEmitter {
     private readonly sessions: SessionManager,
     private readonly answers: AnswerManager,
     private readonly uploader: TranscriptUploader,
+    private readonly poller: MessagePoller,
     private readonly clientFor: () => TeamBridgeClient | null,
   ) {
     super()
+
+    // Append-only, and by id: the poller never returns one twice, so nothing
+    // above the newest message can move and the reader's place is kept.
+    poller.on('messages', (incoming: AssistMessage[]) => {
+      const known = new Set(this.messages.map((m) => m.id))
+      const fresh = incoming.filter((m) => !known.has(m.id))
+      if (fresh.length === 0) return
+      this.messages = [...this.messages, ...fresh]
+      this.publish()
+    })
 
     uploader.on('status', (status: typeof this.upload) => {
       this.upload = status
@@ -131,6 +145,7 @@ export class InterviewSession extends EventEmitter {
       upload: this.upload,
       detectedQuestion: this.detectedQuestion,
       sending: this.sending,
+      messages: this.messages,
       ...(this.error ? { error: this.error } : {}),
     }
   }
@@ -149,6 +164,13 @@ export class InterviewSession extends EventEmitter {
   selectInterview(interview: Interview | null): void {
     if (this.status !== 'idle') return
     this.interview = interview
+    this.messages = []
+
+    // Polled for as long as the round is open, not only while listening: a
+    // colleague may send a steer before capture starts.
+    if (interview) this.poller.start(interview.id)
+    else this.poller.stop()
+
     this.publish()
   }
 
@@ -439,6 +461,8 @@ export class InterviewSession extends EventEmitter {
   /** Leaves the interview entirely, discarding turn history. */
   async close(): Promise<void> {
     await this.stopListening()
+    this.poller.stop()
+    this.messages = []
     this.interview = null
     this.turns = []
     this.publish()
