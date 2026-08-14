@@ -644,18 +644,23 @@ button.answerbtn {
   text-transform: uppercase;
 }
 
-/* Quiet until wanted: the line is a marker, not an action. */
+/* Part of the marker rather than something revealed by it. It was hidden until
+   hover, which on a line sixteen pixels tall meant hidden. */
 .turn-line button.link {
-  text-transform: none;
-  letter-spacing: 0;
-  font-weight: 400;
-  opacity: 0;
-  transition: opacity 120ms ease;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration-color: var(--border);
+  /* Negative margin keeps the padding from spacing the line out: it is there
+     to be hit, not to be seen. */
+  padding: 6px 2px;
+  margin: -6px 0;
 }
 
-.turn-line:hover button.link,
-.turn-line button.link:focus-visible {
-  opacity: 1;
+.turn-line button.link:hover {
+  color: var(--fg);
+  text-decoration-color: currentColor;
 }
 
 .turn-line::before,
