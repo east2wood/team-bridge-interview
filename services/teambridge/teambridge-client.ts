@@ -6,6 +6,7 @@ import type {
   CreateSessionInput,
   Interview,
   QuestionSource,
+  Recruitment,
   SegmentUpload,
 } from '@shared/api-types'
 import type { StoredAnswer, StoredSegment } from '@shared/api-types'
@@ -144,6 +145,51 @@ export class TeamBridgeClient {
       completedAt: answer.completed_at ?? null,
       error: answer.error ?? null,
     }))
+  }
+
+  /**
+   * Who a round is with and what they are being seen about.
+   *
+   * Asked for once, when somebody opens the panel: it carries a resume, and
+   * the picker that lists forty rounds has no business loading forty of them.
+   */
+  async recruitment(id: number): Promise<Recruitment> {
+    const body = await this.json<{ data: RawRecruitment }>(
+      'GET',
+      `/api/v1/assist/recruitments/${id}`,
+    )
+    const raw = body.data
+    return {
+      id: raw.id,
+      jobTitle: raw.job_title ?? null,
+      companyName: raw.company_name ?? null,
+      candidate: raw.candidate
+        ? {
+            id: raw.candidate.id,
+            name: raw.candidate.name,
+            headline: raw.candidate.headline ?? null,
+            email: raw.candidate.email ?? null,
+            phone: raw.candidate.phone ?? null,
+            location: raw.candidate.location ?? null,
+          }
+        : null,
+      resume: raw.resume
+        ? {
+            kind: raw.resume.kind,
+            title: raw.resume.title ?? null,
+            text: raw.resume.text ?? null,
+            url: raw.resume.url ?? null,
+          }
+        : null,
+      job: raw.job
+        ? {
+            id: raw.job.id ?? null,
+            title: raw.job.title ?? null,
+            description: raw.job.description ?? null,
+            postingUrl: raw.job.posting_url ?? null,
+          }
+        : null,
+    }
   }
 
   async createSession(input: CreateSessionInput = {}): Promise<AssistSession> {
@@ -426,6 +472,7 @@ function defaultCode(status: number): string {
 
 interface RawInterview {
   id: number
+  recruitment_id?: number | null
   starts_at: string | null
   ends_at: string | null
   time_zone: string
@@ -433,6 +480,32 @@ interface RawInterview {
   position: { title: string | null }
   company: { name: string | null }
   candidate?: { id: number; name: string } | null
+}
+
+interface RawRecruitment {
+  id: number
+  job_title?: string | null
+  company_name?: string | null
+  candidate?: {
+    id: number
+    name: string
+    headline?: string | null
+    email?: string | null
+    phone?: string | null
+    location?: string | null
+  } | null
+  resume?: {
+    kind: 'record' | 'written' | 'link'
+    title?: string | null
+    text?: string | null
+    url?: string | null
+  } | null
+  job?: {
+    id?: number | null
+    title?: string | null
+    description?: string | null
+    posting_url?: string | null
+  } | null
 }
 
 interface RawStoredSegment {
@@ -490,6 +563,7 @@ interface RawSession {
 function toInterview(raw: RawInterview): Interview {
   return {
     id: raw.id,
+    recruitmentId: raw.recruitment_id ?? null,
     startsAt: raw.starts_at,
     endsAt: raw.ends_at,
     timeZone: raw.time_zone,

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/channels'
-import type { Interview, LiveSessionState } from '@shared/api-types'
+import type { Interview, LiveSessionState, Recruitment } from '@shared/api-types'
 import type {
   AudioChannel,
   CaptureCommand,
@@ -57,6 +57,8 @@ const api = {
   startListening: (): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke(IPC.liveStart),
   newTurn: (): Promise<void> => ipcRenderer.invoke(IPC.liveNewTurn),
+  getRecruitment: (id: number): Promise<Recruitment> =>
+    ipcRenderer.invoke(IPC.recruitmentGet, id),
   answerNow: (): Promise<void> => ipcRenderer.invoke(IPC.liveAnswer),
   stopListening: (): Promise<void> => ipcRenderer.invoke(IPC.liveStop),
   closeInterview: (): Promise<void> => ipcRenderer.invoke(IPC.liveClose),

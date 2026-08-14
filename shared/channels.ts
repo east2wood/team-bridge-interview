@@ -21,6 +21,7 @@ export const IPC = {
   liveSelect: 'live:select',
   liveStart: 'live:start',
   liveNewTurn: 'live:new-turn',
+  recruitmentGet: 'recruitment:get',
   liveAnswer: 'live:answer',
   liveStop: 'live:stop',
   liveClose: 'live:close',

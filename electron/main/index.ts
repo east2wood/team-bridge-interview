@@ -25,6 +25,7 @@ import {
   type WhisperModel,
 } from '@shared/types'
 import { IPC } from '@shared/channels'
+import type { Recruitment } from '@shared/api-types'
 import { child } from '@services/logger'
 import { settings } from '@services/settings/settings'
 import { closeDatabase, openDatabase } from '@services/history/db'
@@ -256,6 +257,21 @@ function registerIpc(): void {
   ipcMain.on(IPC.liveSelect, (_e, interview) => live.selectInterview(interview))
   ipcMain.handle(IPC.liveStart, () => live.startListening())
   ipcMain.handle(IPC.liveNewTurn, () => live.newTurn())
+
+  // Read once and kept: a recruitment does not change during the round it is
+  // being read for, and the panel is opened and closed repeatedly.
+  const recruitments = new Map<number, Recruitment>()
+  ipcMain.handle(IPC.recruitmentGet, async (_e, id: number): Promise<Recruitment> => {
+    const cached = recruitments.get(id)
+    if (cached) return cached
+
+    const client = teamBridgeClient()
+    if (!client) throw new Error('No TeamBridge server is configured. Add it in Settings.')
+
+    const recruitment = await client.recruitment(id)
+    recruitments.set(id, recruitment)
+    return recruitment
+  })
   ipcMain.handle(IPC.liveAnswer, () => live.answer())
   ipcMain.handle(IPC.liveStop, () => live.stopListening())
   ipcMain.handle(IPC.liveClose, () => live.close())

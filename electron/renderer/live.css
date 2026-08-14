@@ -208,6 +208,214 @@ button.back {
   padding-left: 0;
 }
 
+/* The record and the reference side by side. The composer spans both, because
+   what it does applies to the round whatever is being read beside it. */
+.chat__body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.chat__main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ------------------------- recruitment panel ---------------------------- */
+
+/* Raised a little off the interview canvas and separated by a line rather than
+   a shadow: it sits beside the round, it is not floating over it. */
+.panel {
+  flex: 0 0 420px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.panel__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 0 0 auto;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel__title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+button.link.panel__close {
+  margin-left: auto;
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 4px 16px 24px;
+}
+
+/* Sections separated by a rule and space, not stacked as cards inside a card. */
+.panel__section {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel__section:last-child {
+  border-bottom: none;
+}
+
+.panel__section > h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.panel__section > h3 button.link {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.panel__sub {
+  margin: 18px 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* The name is what the eye should land on. */
+.panel__name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  user-select: text;
+}
+
+.panel__headline {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+  user-select: text;
+}
+
+.panel__facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 10px 0 0;
+  font-size: 13px;
+}
+
+.panel__facts dt {
+  grid-column: 1;
+}
+
+.panel__facts dd {
+  grid-column: 2;
+  margin: 0;
+  user-select: text;
+}
+
+.panel__error {
+  padding: 14px 0;
+}
+
+.panel__error p {
+  margin: 0 0 8px;
+}
+
+/* ----------------------------- markdown --------------------------------- */
+
+/* Denser than the interview beside it: this is read in glances, and a resume
+   set at conversation size would be a page of scrolling per job. */
+.md {
+  font-size: 13.5px;
+  line-height: 1.55;
+  user-select: text;
+}
+
+.md .md__h {
+  margin: 18px 0 6px;
+  line-height: 1.3;
+}
+
+.md .md__h1 {
+  font-size: 18px;
+}
+
+.md .md__h2 {
+  font-size: 15.5px;
+}
+
+.md .md__h3 {
+  font-size: 14px;
+}
+
+.md .md__h4 {
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+.md > :first-child {
+  margin-top: 0;
+}
+
+.md .md__p {
+  margin: 0 0 10px;
+}
+
+.md .md__list {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.md .md__list li {
+  margin-bottom: 5px;
+}
+
+.md .md__rule {
+  margin: 16px 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+.md .md__code {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--control);
+  overflow-x: auto;
+  font-size: 12.5px;
+}
+
+.md .md__inlinecode {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--control);
+  font-size: 12.5px;
+}
+
+.md a,
+.panel a {
+  color: var(--accent);
+}
+
 .chat__scroll {
   flex: 1 1 auto;
   min-height: 0;

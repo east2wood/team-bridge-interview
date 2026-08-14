@@ -3,6 +3,7 @@ import type { AssistMessage, CaptureTurn, LiveSessionState, TranscriptItem } fro
 import type { AudioChannel } from '@shared/types'
 import { formatTime } from './InterviewList'
 import { buildTimeline, currentContext, formatTurn, turnText } from './timeline'
+import { RecruitmentPanel } from './RecruitmentPanel'
 
 /**
  * One interview as a single continuous conversation.
@@ -35,6 +36,7 @@ export function InterviewDetail({
   const scroller = useRef<HTMLDivElement>(null)
   const [pinned, setPinned] = useState(true)
   const [unread, setUnread] = useState(false)
+  const [details, setDetails] = useState(false)
 
   // Anything that lengthens the conversation should follow it down — but only
   // if the reader is already at the bottom. Yanking them away from an answer
@@ -106,6 +108,13 @@ export function InterviewDetail({
               : `Syncing ${live.upload.pending}`}
           </span>
         )}
+        <button
+          className={`compact ${details ? 'on' : ''}`}
+          onClick={() => setDetails((open) => !open)}
+          title="Candidate, job and resume, beside the interview"
+        >
+          Recruitment Details
+        </button>
         {running && live.sessionStartedAt && <Elapsed since={live.sessionStartedAt} />}
         {running && (
           <button className="compact" onClick={() => void window.tb.stopListening()}>
@@ -115,7 +124,9 @@ export function InterviewDetail({
         <StatusPill live={live} level={level} />
       </header>
 
-      <div className="chat__scroll" ref={scroller} onScroll={onScroll}>
+      <div className="chat__body">
+        <div className="chat__main">
+          <div className="chat__scroll" ref={scroller} onScroll={onScroll}>
         <div className="thread">
           {live.loadingRecord && <p className="muted small loading">Reading earlier runs…</p>}
 
@@ -142,18 +153,22 @@ export function InterviewDetail({
             ),
           )}
 
-        </div>
-      </div>
+            </div>
+          </div>
 
-      {/* Both anchored to the bottom of the record: the jump sits on top of
-          the live text rather than at a distance measured from the window. */}
-      <div className="dock">
-        {unread && (
-          <button className="jump" onClick={jump}>
-            ↓ Newest
-          </button>
-        )}
-        <Tail live={live} partials={partials} />
+          {/* Both anchored to the bottom of the record: the jump sits on top of
+              the live text rather than at a distance measured from the window. */}
+          <div className="dock">
+            {unread && (
+              <button className="jump" onClick={jump}>
+                ↓ Newest
+              </button>
+            )}
+            <Tail live={live} partials={partials} />
+          </div>
+        </div>
+
+        {details && <RecruitmentPanel interview={interview} onClose={() => setDetails(false)} />}
       </div>
 
       <Composer live={live} />

@@ -83,6 +83,12 @@ button.compact {
   font-size: 12px;
 }
 
+/* A toggle that is currently on. */
+button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 button:focus-visible,
 input:focus-visible,
 select:focus-visible {

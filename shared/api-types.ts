@@ -7,6 +7,12 @@
 
 export interface Interview {
   id: number
+  /**
+   * What to ask for when this round is opened, and the only thing in a row
+   * that is not for reading. Null where the round has no recruitment behind
+   * it — still sittable, it just has nothing more to say about itself.
+   */
+  recruitmentId: number | null
   /** ISO 8601 in the interview's own zone, not UTC — the app prints it verbatim. */
   startsAt: string | null
   endsAt: string | null
@@ -17,6 +23,46 @@ export interface Interview {
   company: { name: string | null }
   /** Absent when the caller may not see whose round it is. */
   candidate?: { id: number; name: string } | null
+}
+
+/**
+ * Who a round is with and what they are being seen about.
+ *
+ * Read once, after a round has been chosen, because it carries a resume. A
+ * projection of the server's record rather than the record: no outcome, no
+ * compensation, no lifecycle — none of which belongs on a laptop in a coffee
+ * shop, and all of which the server leaves out.
+ */
+export interface Recruitment {
+  id: number
+  jobTitle: string | null
+  companyName: string | null
+  /** Absent where the caller may not be told whose round it is. */
+  candidate: {
+    id: number
+    name: string
+    headline?: string | null
+    /** Contact details follow a stricter rule than the name, and are often absent. */
+    email?: string | null
+    phone?: string | null
+    location?: string | null
+  } | null
+  /**
+   * Markdown, or an address where somebody kept one instead of writing it.
+   * There is no file: a resume here is text.
+   */
+  resume: {
+    kind: 'record' | 'written' | 'link'
+    title?: string | null
+    text?: string | null
+    url?: string | null
+  } | null
+  job: {
+    id: number | null
+    title: string | null
+    description: string | null
+    postingUrl: string | null
+  } | null
 }
 
 export interface AssistSession {
