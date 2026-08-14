@@ -49,7 +49,9 @@ export function InterviewDetail({
     if (!el) return
     if (pinned) el.scrollTop = el.scrollHeight
     else setUnread(true)
-  }, [tail, partials, live.status, pinned])
+    // Not keyed on the live text: it sits outside the scroller now, so it
+    // cannot move the bottom of the record.
+  }, [tail, live.status, pinned])
 
   if (!interview) return null
 
@@ -130,15 +132,19 @@ export function InterviewDetail({
             ),
           )}
 
-          <Tail live={live} partials={partials} />
         </div>
       </div>
 
-      {unread && (
-        <button className="jump" onClick={jump}>
-          ↓ Newest
-        </button>
-      )}
+      {/* Both anchored to the bottom of the record: the jump sits on top of
+          the live text rather than at a distance measured from the window. */}
+      <div className="dock">
+        {unread && (
+          <button className="jump" onClick={jump}>
+            ↓ Newest
+          </button>
+        )}
+        <Tail live={live} partials={partials} />
+      </div>
 
       <Composer live={live} />
     </div>

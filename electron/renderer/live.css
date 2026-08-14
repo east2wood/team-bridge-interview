@@ -213,11 +213,19 @@ button.back {
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: thin;
+  /* Column + auto top margin below: a short record sits on the bottom of the
+     page with the newest line nearest the live text, rather than hanging from
+     the top under a screen of empty space. Once it is longer than the window
+     the auto margin resolves to nothing and it scrolls as usual. */
+  display: flex;
+  flex-direction: column;
 }
 
 .thread {
+  width: 100%;
   max-width: 800px;
-  margin: 0 auto;
+  /* Horizontally centred, pushed to the bottom. */
+  margin: auto auto 0;
   padding: 24px 20px 8px;
 }
 
@@ -321,9 +329,19 @@ button.link:hover {
   line-height: 1.6;
 }
 
-/* The live tail: current activity, always last. */
+/* The live tail: what is being said now.
+ 
+   Outside the scroller, directly above the composer, so it stays put while the
+   record is scrolled. Reading back through the interview should not mean
+   losing sight of the sentence being spoken while you read. */
 .tail {
-  padding: 4px 0 20px;
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  /* The transcript's own padding, so the gutter and the words line up with the
+     lines above rather than nearly doing so. */
+  padding: 2px 20px 10px;
 }
 
 .statuspill {
@@ -399,10 +417,19 @@ button.link:hover {
   }
 }
 
+/* Holds the bottom of the page together: the live text, and the jump sitting
+   directly on top of it. */
+.dock {
+  position: relative;
+  flex: 0 0 auto;
+}
+
 button.jump {
   position: absolute;
   left: 50%;
-  bottom: 120px;
+  /* Measured from the live text rather than from the window, so it cannot
+     land on top of it when the composer or the live block changes height. */
+  bottom: calc(100% + 6px);
   transform: translateX(-50%);
   border-radius: 999px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
