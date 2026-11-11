@@ -22,6 +22,7 @@ import { IPC } from '@shared/channels'
 import type { Recruitment } from '@shared/api-types'
 import { child } from '@services/logger'
 import { settings } from '@services/settings/settings'
+import { migrateUserData } from '@services/migrate-user-data'
 import { openLiveCaptions, readLiveCaptions } from '@services/live-captions'
 import { pasteIntoChatGPT } from '@services/chatgpt'
 import { TeamBridgeClient } from '@services/teambridge/teambridge-client'
@@ -51,6 +52,10 @@ let realtime: RealtimeClient
 let live: InterviewSession
 const captions = new CaptionCapture()
 
+// Before anything reads settings or Chromium starts: the first run after the
+// rename from TeamBridge Assist brings the old settings and token across.
+migrateUserData()
+
 // One instance only: two processes fighting over the same hotkey and the same
 // interview run is a support ticket waiting to happen.
 if (!app.requestSingleInstanceLock()) {
@@ -61,7 +66,7 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 async function bootstrap(): Promise<void> {
-  app.setAppUserModelId('com.teambridge.assist')
+  app.setAppUserModelId('com.teambridge.interview')
 
   poller = new MessagePoller(teamBridgeClient)
   realtime = new RealtimeClient(() => {
@@ -118,7 +123,7 @@ function wireEvents(): void {
     const win = getMainWindow()
     if (win && !win.isFocused() && Notification.isSupported()) {
       new Notification({
-        title: 'TeamBridge Assist',
+        title: 'TeamBridge Interview',
         body: `New message from ${message.sender.name ?? 'a colleague'}`,
       }).show()
     }
@@ -402,7 +407,7 @@ async function launchLiveCaptions(): Promise<{ ok: boolean; reason?: string }> {
 function createTray(): void {
   const icon = nativeImage.createFromPath(join(app.getAppPath(), 'build', 'tray.png'))
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon)
-  tray.setToolTip('TeamBridge Assist')
+  tray.setToolTip('TeamBridge Interview')
   tray.on('click', () => showOverlay())
   updateTray()
 }
@@ -426,7 +431,7 @@ function updateTray(): void {
         click: () => void sendCaptions('chatgpt'),
       },
       { type: 'separator' },
-      { label: 'Open TeamBridge Assist', click: () => showMain() },
+      { label: 'Open TeamBridge Interview', click: () => showMain() },
       { label: 'Show overlay', click: () => showOverlay() },
       { label: 'Settings…', click: () => showSettings() },
       { type: 'separator' },
@@ -434,7 +439,7 @@ function updateTray(): void {
     ]),
   )
 
-  tray.setToolTip(listening ? 'TeamBridge Assist — listening' : 'TeamBridge Assist')
+  tray.setToolTip(listening ? 'TeamBridge Interview — listening' : 'TeamBridge Interview')
 }
 
 async function shutdown(): Promise<void> {
@@ -452,5 +457,5 @@ app.on('before-quit', () => {
 
 process.on('uncaughtException', (err) => {
   log.fatal({ err }, 'uncaught exception in main')
-  dialog.showErrorBox('TeamBridge Assist', `Unexpected error:\n\n${err.message}`)
+  dialog.showErrorBox('TeamBridge Interview', `Unexpected error:\n\n${err.message}`)
 })

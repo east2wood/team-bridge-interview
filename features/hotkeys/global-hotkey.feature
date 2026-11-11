@@ -5,7 +5,7 @@ Feature: Global hotkey
   I want to start and stop recording without switching windows
   So that capturing a moment costs me nothing in attention
 
-  The hotkey must work while TeamBridge Assist is unfocused, minimised, or
+  The hotkey must work while TeamBridge Interview is unfocused, minimised, or
   hidden in the tray. If it only worked when focused it would be useless.
 
   Background:

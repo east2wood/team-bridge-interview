@@ -9,7 +9,7 @@ const log = child('windows')
  * The app's name with its version, for window titles: which build somebody is
  * running is the first question when something they report looks wrong.
  */
-const APP_TITLE = `TeamBridge Assist v${app.getVersion()}`
+const APP_TITLE = `TeamBridge Interview v${app.getVersion()}`
 
 /**
  * Keeps the title set here. Each page has a <title> of its own, and without

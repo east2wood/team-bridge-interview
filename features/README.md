@@ -1,6 +1,6 @@
 # Feature Specifications
 
-Executable specifications for TeamBridge Assist, written in Gherkin. These are the behavioural contract: if a scenario here passes, the feature works. If you change behaviour, change the scenario in the same commit.
+Executable specifications for TeamBridge Interview, written in Gherkin. These are the behavioural contract: if a scenario here passes, the feature works. If you change behaviour, change the scenario in the same commit.
 
 ## Layout
 

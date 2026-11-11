@@ -8,7 +8,7 @@ const log = child('realtime')
 /**
  * Reconnect backoff with jitter, capped.
  *
- * Jittered because every Assist in an outage would otherwise reconnect on the
+ * Jittered because every copy of the app in an outage would otherwise reconnect on the
  * same schedule and arrive together.
  */
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 15_000, 30_000]
