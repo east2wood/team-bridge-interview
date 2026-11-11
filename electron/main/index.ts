@@ -36,6 +36,7 @@ import { CaptionCapture } from './caption-capture'
 import { registerHotkey, unregisterAll } from './hotkeys'
 import { testConnection, normaliseUrl } from '@services/teambridge/connection'
 import {
+  bringMainToFront,
   createOverlay,
   getMainWindow,
   getOverlay,
@@ -167,7 +168,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC.liveJoin, () => live.joinListening())
   ipcMain.handle(IPC.liveLeave, () => live.leaveListening())
   ipcMain.handle(IPC.liveClose, () => live.close())
-  ipcMain.handle(IPC.captionsSend, (_e, to: CaptionTarget) => sendCaptions(to))
+  // From the window's own buttons: after Ask GPT, come back to the window.
+  ipcMain.handle(IPC.captionsSend, (_e, to: CaptionTarget) => sendCaptions(to, { returnFocus: true }))
   ipcMain.handle(IPC.chatSend, async (_e, text: string) => {
     const result = await live.sendMessage(text)
     if (!result.ok && result.reason) send(IPC.onNotice, { level: 'error', message: result.reason })
@@ -327,7 +329,19 @@ function refreshCaptions(): void {
  * question and not the start of whatever they say next — to the support chat
  * (Send to assistant) or to ChatGPT (Ask GPT).
  */
-async function sendCaptions(to: CaptionTarget): Promise<{ ok: boolean; reason?: string }> {
+/**
+ * After Ask GPT from the window's button, the interview window comes back to
+ * the front once ChatGPT has the question. Not from the hotkey or the tray:
+ * pressed from another window — the meeting, say — focus is left where the
+ * user will want it. Not after a failure either: ChatGPT is then where the
+ * question still needs pasting.
+ */
+const RETURN_AFTER_SEND_MS = 500
+
+async function sendCaptions(
+  to: CaptionTarget,
+  { returnFocus = false }: { returnFocus?: boolean } = {},
+): Promise<{ ok: boolean; reason?: string }> {
   const fail = (level: 'info' | 'warn' | 'error', reason: string) => {
     send(IPC.onNotice, { level, message: reason })
     return { ok: false, reason }
@@ -355,6 +369,13 @@ async function sendCaptions(to: CaptionTarget): Promise<{ ok: boolean; reason?: 
 
   const result = await pasteIntoChatGPT(question, { submit: true })
   if (!result.ok) return fail('warn', `${result.message} The question is on the clipboard — paste it into ChatGPT.`)
+  if (returnFocus) {
+    // A moment for ChatGPT to take the Enter before it loses the foreground:
+    // keys still queued for it when focus moves can go to the window that
+    // gets it instead.
+    await new Promise((resolve) => setTimeout(resolve, RETURN_AFTER_SEND_MS))
+    if (!bringMainToFront()) log.info('the interview window could not be brought back to the front')
+  }
   return { ok: true }
 }
 

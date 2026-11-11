@@ -3,6 +3,7 @@ import { app, BrowserWindow, screen, shell } from 'electron'
 import { settings } from '@services/settings/settings'
 import { child } from '@services/logger'
 import { profile } from './profile'
+import { win32 } from '@services/win32'
 
 const log = child('windows')
 
@@ -105,6 +106,31 @@ let mainWindow: BrowserWindow | null = null
 
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+}
+
+/**
+ * Brings the Live Interview window back to the front and gives it the
+ * keyboard, from behind another app — after Ask GPT has driven ChatGPT.
+ *
+ * `focus()` alone is not enough there: once another app holds the
+ * foreground, Windows answers it by flashing the taskbar button. So the
+ * window is raised the way ChatGPT was, borrowing the foreground thread's
+ * input state for the switch.
+ */
+export function bringMainToFront(): boolean {
+  const win = showMain()
+  if (process.platform !== 'win32') return true
+  try {
+    const handle = win.getNativeWindowHandle()
+    const hwnd = Number(handle.length >= 8 ? handle.readBigUInt64LE(0) : handle.readUInt32LE(0))
+    const raised = win32().bringToFront(hwnd)
+    win.focus()
+    win.webContents.focus()
+    return raised
+  } catch (err) {
+    log.warn({ err }, 'could not bring the interview window to the front')
+    return false
+  }
 }
 
 /**

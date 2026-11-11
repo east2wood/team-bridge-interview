@@ -450,11 +450,10 @@ button.link.panel__close {
 
 /* ---------------------------- live captions ----------------------------- */
 
-/* Narrower than the recruitment panel: it is read in glances while listening,
-   and the timeline beside it is still the main thing on screen. */
-/* The listening split: chat 60%, captions 40%. */
+/* The listening split: chat and captions half each. The captions are what
+   the questions are lifted from, and they get as much room as the chat. */
 .panel.captions {
-  flex: 0 0 40%;
+  flex: 0 0 50%;
   position: relative;
 }
 

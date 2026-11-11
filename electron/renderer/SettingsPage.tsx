@@ -288,8 +288,22 @@ function HotkeyField({
   )
 }
 
+/**
+ * Keys the browser and Electron name differently. The browser's names pass
+ * through otherwise, and Electron refuses these ("conversion failure from
+ * Control+ArrowLeft").
+ */
+const ELECTRON_KEY_NAMES: Record<string, string> = {
+  ArrowLeft: 'Left',
+  ArrowRight: 'Right',
+  ArrowUp: 'Up',
+  ArrowDown: 'Down',
+}
+
 /** Maps a KeyboardEvent to the name Electron's accelerator parser expects. */
 function normaliseKey(e: KeyboardEvent): string {
+  const renamed = ELECTRON_KEY_NAMES[e.key]
+  if (renamed) return renamed
   if (e.code.startsWith('Digit')) return e.code.slice(5)
   if (e.code.startsWith('Key')) return e.code.slice(3)
   if (e.code.startsWith('Numpad')) return `num${e.code.slice(6).toLowerCase()}`
