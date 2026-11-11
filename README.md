@@ -81,6 +81,19 @@ npm run build        # production bundles into out/
 npm run dist         # NSIS installer into release/
 ```
 
+### Two copies at once, for testing
+
+To test an interviewer and an assistant together on one machine, run a second copy under its own profile beside `npm run dev`:
+
+```bash
+npm run dev              # first copy
+npm run dev:second       # second copy, profile "second" (or: npm run dev:second -- <name>)
+```
+
+A profile is its own data folder (`%APPDATA%\teambridge-interview-<name>`): its own server, API token, settings and log. Give it a different user's token in its Settings. Its window titles end in `[<name>]`. It reuses the first copy's dev server, so renderer changes reach both, but a change to main or preload needs both restarted. Global hotkeys belong to whichever copy registered them first; the other copy says so and works from its buttons and tray.
+
+`--profile=<name>` (or `TB_PROFILE=<name>`) works on any build, including the installed app.
+
 ---
 
 ## Privacy
