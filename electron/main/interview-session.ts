@@ -63,7 +63,11 @@ export class InterviewSession extends EventEmitter {
 
   private role: 'interviewer' | 'assistant' = 'interviewer'
   private meId: number | null = null
-  /** As an assistant: the interviewer's run, and what its captions show. */
+  /** As an assistant: the interviewer's open run, whether or not it has been joined. */
+  private liveRun: WatchedRun | null = null
+  /** As an assistant: Join Listening was pressed, and Leave has not been. */
+  private joined = false
+  /** As an assistant: the run subscribed to — the live run, once joined. */
   private watching: WatchedRun | null = null
   private remoteCaptions: string | null = null
   private watchTimer: NodeJS.Timeout | null = null
@@ -106,6 +110,8 @@ export class InterviewSession extends EventEmitter {
       realtime: this.realtime,
       role: this.role,
       meId: this.meId,
+      liveRun: this.liveRun,
+      joined: this.joined,
       watching: this.watching,
       ...(this.error ? { error: this.error } : {}),
     }
@@ -164,7 +170,55 @@ export class InterviewSession extends EventEmitter {
 
   /* ------------------------------ assistant ----------------------------- */
 
-  /** Starts looking for the interviewer's run, and keeps looking while the round is open. */
+  /**
+   * Joins the interviewer's listening: their captions beside the chat, as
+   * they change. Pressed before they have started, it waits and joins the run
+   * as soon as there is one.
+   */
+  joinListening(): { ok: boolean; reason?: string } {
+    if (this.role !== 'assistant' || !this.interview) {
+      return { ok: false, reason: 'Only somebody assisting a round joins its listening.' }
+    }
+    this.joined = true
+    this.syncSubscription()
+    this.publish()
+    // Ask now rather than at the next tick, so the captions come up at once.
+    void this.checkLiveRound()
+    return { ok: true }
+  }
+
+  /** Stops watching the interviewer's captions. The chat stays. */
+  leaveListening(): void {
+    if (!this.joined) return
+    this.joined = false
+    this.syncSubscription()
+    this.publish()
+  }
+
+  /**
+   * Subscribes to the run there should be one to — the live run, once
+   * joined — and lets go of any other. True when it changed.
+   */
+  private syncSubscription(captions?: string | null): boolean {
+    const want = this.joined ? this.liveRun : null
+    if (want?.sessionId === this.watching?.sessionId) return false
+
+    if (this.watching) this.live.disconnect()
+    this.watching = want
+    if (want) {
+      log.info({ sessionId: want.sessionId }, 'joining the interviewer’s run')
+      this.live.connect(want.sessionId)
+      this.setRemoteCaptions(captions ?? '')
+    } else {
+      this.setRemoteCaptions(null)
+    }
+    return true
+  }
+
+  /**
+   * Keeps an eye on whether the interviewer is listening, for as long as the
+   * round is open: what the Join Listening bar says, and the run to join.
+   */
   private startWatching(): void {
     this.stopWatching()
     const tick = async () => {
@@ -179,15 +233,15 @@ export class InterviewSession extends EventEmitter {
   private stopWatching(): void {
     if (this.watchTimer) clearTimeout(this.watchTimer)
     this.watchTimer = null
-    if (this.watching) this.live.disconnect()
-    this.watching = null
-    this.setRemoteCaptions(null)
+    this.joined = false
+    this.liveRun = null
+    this.syncSubscription()
   }
 
   /**
-   * Asks whether the interviewer is listening. A new run is subscribed to; a
-   * run that has gone is let go. While the socket is down the answer's
-   * captions stand in for the ones it would have carried.
+   * Asks whether the interviewer is listening. Once joined, a new run is
+   * subscribed to and a run that has gone is let go. While the socket is down
+   * the answer's captions stand in for the ones it would have carried.
    */
   private async checkLiveRound(): Promise<void> {
     const client = this.clientFor()
@@ -205,27 +259,14 @@ export class InterviewSession extends EventEmitter {
     if (this.interview?.id !== interview.id || this.role !== 'assistant') return
 
     const run = round.session
-    if (!run) {
-      if (this.watching) {
-        log.info('the interviewer stopped listening')
-        this.watching = null
-        this.live.disconnect()
-        this.setRemoteCaptions(null)
-        this.publish()
-      }
-      return
-    }
-
-    if (run.sessionId !== this.watching?.sessionId) {
-      log.info({ sessionId: run.sessionId }, 'joining the interviewer’s run')
-      this.watching = run
-      this.live.connect(run.sessionId)
-      this.setRemoteCaptions(round.captions ?? '')
+    const changed = run?.sessionId !== this.liveRun?.sessionId
+    this.liveRun = run
+    if (this.syncSubscription(round.captions) || changed) {
       this.publish()
       return
     }
 
-    if (this.realtime !== 'connected') this.setRemoteCaptions(round.captions ?? '')
+    if (this.watching && this.realtime !== 'connected') this.setRemoteCaptions(round.captions ?? '')
   }
 
   private setRemoteCaptions(text: string | null): void {
@@ -289,7 +330,9 @@ export class InterviewSession extends EventEmitter {
       return { ok: false, reason: 'Already listening.' }
     }
 
-    if (this.interview && !this.interview.canListen) {
+    // Before anything else: this is the only thing that opens Live Captions,
+    // and an assistant watches the interviewer's captions instead.
+    if (this.role === 'assistant' || (this.interview && !this.interview.canListen)) {
       return { ok: false, reason: NOT_INTERVIEWER }
     }
 
@@ -500,13 +543,12 @@ export class InterviewSession extends EventEmitter {
 
       case 'session.completed': {
         if (this.role === 'assistant') {
-          // The interviewer stopped. Let the run go; the next check finds the
-          // next one if they start again.
-          if (this.watching) {
+          // The interviewer stopped. Let the run go but stay joined: the next
+          // check finds the next run if they start again.
+          if (this.liveRun) {
             log.info('the interviewer stopped listening')
-            this.watching = null
-            this.live.disconnect()
-            this.setRemoteCaptions(null)
+            this.liveRun = null
+            this.syncSubscription()
             this.publish()
           }
           return

@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react'
  * here. Nothing to ask or send from — the chat beside it is how the assistant
  * says something.
  */
-export function WatchedCaptionsPanel({ interviewer }: { interviewer: string }) {
+export function WatchedCaptionsPanel({ interviewer, live }: { interviewer: string; live: boolean }) {
   const [text, setText] = useState<string | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const [pinned, setPinned] = useState(true)
@@ -40,8 +40,14 @@ export function WatchedCaptionsPanel({ interviewer }: { interviewer: string }) {
       </header>
 
       <div className="panel__body captions__body" ref={scroller} onScroll={onScroll}>
-        {!text && <p className="muted">Nothing captioned yet. Captions appear here as people speak.</p>}
-        {text && <p className="captions__text">{text}</p>}
+        {!live && (
+          <p className="muted">
+            Waiting for {interviewer === 'The interviewer' ? 'the interviewer' : interviewer} to start
+            listening. Their captions appear here as soon as they do.
+          </p>
+        )}
+        {live && !text && <p className="muted">Nothing captioned yet. Captions appear here as people speak.</p>}
+        {live && text && <p className="captions__text">{text}</p>}
       </div>
 
       {!pinned && text && (

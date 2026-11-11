@@ -16,6 +16,8 @@ export const IPC = {
   chatgptOpen: 'chatgpt:open',
   recruitmentGet: 'recruitment:get',
   liveStop: 'live:stop',
+  liveJoin: 'live:join',
+  liveLeave: 'live:leave',
   liveClose: 'live:close',
   captionsSend: 'captions:send',
   chatSend: 'chat:send',
