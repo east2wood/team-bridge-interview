@@ -4,6 +4,7 @@ import type {
   AssistSession,
   CreateSessionInput,
   Interview,
+  LiveRound,
   Recruitment,
 } from '@shared/api-types'
 import type { Identity } from '@shared/types'
@@ -133,6 +134,40 @@ export class TeamBridgeClient {
     return toSession(raw)
   }
 
+  /**
+   * The round's live run and what its interviewer's Live Captions show, for
+   * somebody joining as its assistant.
+   */
+  async liveRound(interviewId: number): Promise<LiveRound> {
+    const body = await this.json<RawLiveRound>('GET', `/api/v1/interview/interviews/${interviewId}/live`)
+    const session = body.session
+    return {
+      session: session
+        ? {
+            sessionId: session.id,
+            startedAt: session.started_at ? Date.parse(session.started_at) || null : null,
+            interviewer: {
+              id: session.interviewer?.id ?? null,
+              name: session.interviewer?.name ?? null,
+            },
+          }
+        : null,
+      captions: body.captions?.text ?? null,
+    }
+  }
+
+  /**
+   * Puts what Live Captions shows in front of everybody watching the run.
+   * The whole text each time, not a change: one that is lost is corrected by
+   * the next.
+   */
+  async sendListening(sessionId: number, text: string): Promise<void> {
+    await this.json('PATCH', `/api/v1/interview/sessions/${sessionId}/listening`, {
+      stream_id: 'live-captions',
+      text,
+    })
+  }
+
   /** Marks the run finished. Statuses are live / ended / failed. */
   async endSession(sessionId: number, status: 'ended' | 'failed' = 'ended'): Promise<void> {
     await this.json('PATCH', `/api/v1/interview/sessions/${sessionId}`, { status })
@@ -220,6 +255,8 @@ interface RawInterview {
   status: string
   /** Sent by servers that know; older ones do not, and nothing is live. */
   live?: boolean
+  /** Whether the key's holder is the round's interviewer. Older servers do not say. */
+  can_listen?: boolean
   position: { title: string | null }
   company: { name: string | null }
   candidate?: { id: number; name: string } | null
@@ -251,6 +288,15 @@ interface RawRecruitment {
   } | null
 }
 
+interface RawLiveRound {
+  session: {
+    id: number
+    started_at?: string | null
+    interviewer?: { id?: number | null; name?: string | null } | null
+  } | null
+  captions?: { text?: string | null } | null
+}
+
 export interface RawMessage {
   id: number
   question_id?: number | null
@@ -258,7 +304,7 @@ export interface RawMessage {
   type?: string
   source?: string
   content?: string
-  sender?: { name?: string | null }
+  sender?: { id?: number | null; name?: string | null }
   created_at?: string
 }
 
@@ -284,6 +330,8 @@ function toInterview(raw: RawInterview): Interview {
     timeZone: raw.time_zone,
     status: raw.status,
     live: raw.live === true,
+    // A server that does not say also does not refuse, so silence is a yes.
+    canListen: raw.can_listen !== false,
     position: raw.position,
     company: raw.company,
     candidate: raw.candidate ?? null,
@@ -317,7 +365,7 @@ export function toMessage(raw: RawMessage | null | undefined): AssistMessage | n
     source: raw.source === 'desktop' ? 'desktop' : 'web',
     content: raw.content,
     question: raw.question ?? null,
-    sender: { name: raw.sender?.name ?? null },
+    sender: { id: raw.sender?.id ?? null, name: raw.sender?.name ?? null },
     createdAt: raw.created_at ?? new Date().toISOString(),
   }
 }

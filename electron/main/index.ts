@@ -117,7 +117,8 @@ function wireEvents(): void {
     watchCaptions(state.status === 'recording')
   })
   live.on('notice', (notice) => send(IPC.onNotice, notice))
-  live.on('web-message', (message: { sender: { name: string | null } }) => {
+  live.on('remote-captions', (text: string | null) => send(IPC.onWatchedCaptions, text))
+  live.on('incoming-message', (message: { sender: { name: string | null } }) => {
     // Worth a nudge only when the window is not being looked at; in view it
     // is already in the timeline.
     const win = getMainWindow()
@@ -168,6 +169,7 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.chatRefresh, () => live.refreshMessages())
   ipcMain.handle(IPC.captionsGet, () => captionsView)
+  ipcMain.handle(IPC.watchedCaptionsGet, () => live.watchedCaptions())
 
   ipcMain.on(IPC.mainOpen, () => showMain())
   ipcMain.on(IPC.mainMinimise, () => {
@@ -286,6 +288,9 @@ function watchCaptions(listening: boolean): void {
 
 function refreshCaptions(): void {
   const showing = readLiveCaptions()
+  // Before the change check: an unchanged caption still has to be sent again
+  // now and then, or the server forgets it for anybody joining later.
+  if (showing.ok) live.shareCaptions(showing.text)
   const next: CaptionsView = showing.ok
     ? { status: 'ok', ...captions.view(showing.text) }
     : { status: 'unavailable', reason: showing.reason, text: '', collectedFrom: 0, completeUntil: 0 }
