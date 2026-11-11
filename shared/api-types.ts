@@ -80,6 +80,8 @@ export interface AssistSession {
   startedAt: string | null
   endedAt: string | null
   segmentCount: number
+  /** How often the server wants a heartbeat while the run is live, in seconds. */
+  heartbeatSeconds: number
 }
 
 export interface CreateSessionInput {
