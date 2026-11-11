@@ -9,6 +9,9 @@ import type {
 } from '@shared/api-types'
 import type { Identity } from '@shared/types'
 
+/** The heartbeat period when the server does not name one. */
+export const DEFAULT_HEARTBEAT_SECONDS = 5
+
 export class TeamBridgeError extends Error {
   constructor(
     readonly code: string,
@@ -168,6 +171,14 @@ export class TeamBridgeClient {
     })
   }
 
+  /**
+   * Says the app is still there and still listening. The server counts a run
+   * as live on the picker only while these keep arriving.
+   */
+  async heartbeat(sessionId: number): Promise<void> {
+    await this.json('POST', `/api/v1/interview/sessions/${sessionId}/heartbeat`, {})
+  }
+
   /** Marks the run finished. Statuses are live / ended / failed. */
   async endSession(sessionId: number, status: 'ended' | 'failed' = 'ended'): Promise<void> {
     await this.json('PATCH', `/api/v1/interview/sessions/${sessionId}`, { status })
@@ -319,6 +330,8 @@ interface RawSession {
   started_at: string | null
   ended_at: string | null
   segment_count: number
+  /** Sent by servers that know heartbeats; older ones do not. */
+  heartbeat_seconds?: number
 }
 
 function toInterview(raw: RawInterview): Interview {
@@ -350,6 +363,10 @@ function toSession(raw: RawSession): AssistSession {
     startedAt: raw.started_at,
     endedAt: raw.ended_at,
     segmentCount: raw.segment_count,
+    heartbeatSeconds:
+      typeof raw.heartbeat_seconds === 'number' && raw.heartbeat_seconds > 0
+        ? raw.heartbeat_seconds
+        : DEFAULT_HEARTBEAT_SECONDS,
   }
 }
 

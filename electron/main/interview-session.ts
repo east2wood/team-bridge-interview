@@ -9,6 +9,7 @@ import type {
   WatchedRun,
 } from '@shared/api-types'
 import {
+  DEFAULT_HEARTBEAT_SECONDS,
   TeamBridgeError,
   toMessage,
   type RawMessage,
@@ -75,6 +76,9 @@ export class InterviewSession extends EventEmitter {
   private shared: { text: string; at: number } | null = null
   private sharing = false
   private pendingShare: string | null = null
+  /** As the interviewer: the heartbeat that keeps the round Live on the picker. */
+  private heartbeatTimer: NodeJS.Timeout | null = null
+  private heartbeatSeconds = DEFAULT_HEARTBEAT_SECONDS
 
   constructor(
     private readonly poller: MessagePoller,
@@ -278,6 +282,51 @@ export class InterviewSession extends EventEmitter {
   /* ----------------------------- interviewer ---------------------------- */
 
   /**
+   * Beats every heartbeat period while listening, the first straight away.
+   * The server takes a run whose beats stop for three periods to have gone —
+   * the app crashed, slept, or lost its network — and takes the Live badge
+   * off the picker, so this is what keeps it on.
+   */
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    if (this.serverSessionId === null) return
+    log.info({ seconds: this.heartbeatSeconds }, 'heartbeat started')
+    void this.beat()
+    this.heartbeatTimer = setInterval(() => void this.beat(), this.heartbeatSeconds * 1000)
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
+    this.heartbeatTimer = null
+  }
+
+  private async beat(): Promise<void> {
+    const sessionId = this.serverSessionId
+    const client = this.clientFor()
+    if (sessionId === null || !client || this.status !== 'recording') return
+    try {
+      await client.heartbeat(sessionId)
+    } catch (err) {
+      // The run is over on the server, or gone: stop, as session.completed
+      // would have said had the socket been up to say it.
+      if (err instanceof TeamBridgeError && (err.status === 409 || err.status === 404)) {
+        if (sessionId === this.serverSessionId && this.status === 'recording') {
+          log.warn({ status: err.status }, 'the run is no longer live on the server; stopping')
+          this.emit('notice', {
+            level: 'warn',
+            message: 'Listening stopped: TeamBridge no longer has this run open.',
+          })
+          void this.stopListening()
+        }
+        return
+      }
+      // A missed beat is a slow or absent network. The next one may land; if
+      // three in a row do not, the badge goes out until they do again.
+      log.debug({ err }, 'heartbeat not delivered')
+    }
+  }
+
+  /**
    * Shares what Live Captions shows with everybody watching the run. Called
    * every time the captions are read; sends when they changed, or when the
    * server would otherwise have forgotten them. One request at a time, the
@@ -357,6 +406,7 @@ export class InterviewSession extends EventEmitter {
 
     this.sessionStartedAt = Date.now()
     this.setStatus('recording')
+    this.startHeartbeat()
     return { ok: true }
   }
 
@@ -426,6 +476,7 @@ export class InterviewSession extends EventEmitter {
         audioSource: 'system',
       })
       this.serverSessionId = created.id
+      this.heartbeatSeconds = created.heartbeatSeconds
       this.live.connect(created.id)
       log.info({ serverSessionId: created.id }, 'opened TeamBridge session')
     } catch (err) {
@@ -447,6 +498,7 @@ export class InterviewSession extends EventEmitter {
   private async endServerSession(status: 'ended' | 'failed'): Promise<void> {
     const client = this.clientFor()
     const sessionId = this.serverSessionId
+    this.stopHeartbeat()
 
     // Unsubscribed first, and deliberately: finishing a session broadcasts
     // that it was completed, and a completed session is the app's signal to

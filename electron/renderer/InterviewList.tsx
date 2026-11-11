@@ -8,8 +8,12 @@ import type { Interview } from '@shared/api-types'
  * recognising the right round at a glance, and a collapsed control hides
  * exactly the fields — time, company, candidate — that tell them apart.
  */
-/** How often the list reloads itself, for the Live badges. */
-const LIST_REFRESH_MS = 30_000
+/**
+ * How often the list reloads itself, for the Live badges. The server drops a
+ * badge after three missed 5-second heartbeats; reloading at about that pace
+ * shows it within seconds rather than half a minute later.
+ */
+const LIST_REFRESH_MS = 10_000
 
 export function InterviewList({
   onOpen,
