@@ -4,6 +4,7 @@ import type {
   AssistSession,
   CreateSessionInput,
   Interview,
+  FaceValue,
   LiveRound,
   Recruitment,
 } from '@shared/api-types'
@@ -105,6 +106,7 @@ export class TeamBridgeClient {
             email: raw.candidate.email ?? null,
             phone: raw.candidate.phone ?? null,
             location: raw.candidate.location ?? null,
+            ...(raw.candidate.fields ? { fields: raw.candidate.fields } : {}),
           }
         : null,
       resume: raw.resume
@@ -284,6 +286,7 @@ interface RawRecruitment {
     email?: string | null
     phone?: string | null
     location?: string | null
+    fields?: Record<string, FaceValue>
   } | null
   resume?: {
     kind: 'record' | 'written' | 'link'

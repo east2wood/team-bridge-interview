@@ -37,6 +37,9 @@ export interface Interview {
  * compensation, no lifecycle — none of which belongs on a laptop in a coffee
  * shop, and all of which the server leaves out.
  */
+/** One value of the candidate's profile, as JSON carries it. */
+export type FaceValue = string | number | boolean | null | string[]
+
 export interface Recruitment {
   id: number
   jobTitle: string | null
@@ -50,6 +53,12 @@ export interface Recruitment {
     email?: string | null
     phone?: string | null
     location?: string | null
+    /**
+     * Every field of the candidate's profile, by the server's name for it
+     * (first_name, skills, work_authorization_country, …). Absent from
+     * servers that do not send it.
+     */
+    fields?: Record<string, FaceValue>
   } | null
   /**
    * Markdown, or an address where somebody kept one instead of writing it.
