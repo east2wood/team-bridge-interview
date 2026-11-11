@@ -51,6 +51,9 @@ const api = {
   getRecruitment: (id: number): Promise<Recruitment> =>
     ipcRenderer.invoke(IPC.recruitmentGet, id),
   stopListening: (): Promise<void> => ipcRenderer.invoke(IPC.liveStop),
+  /** As an assistant: watch the interviewer's captions, now or as soon as they start. */
+  joinListening: (): Promise<{ ok: boolean; reason?: string }> => ipcRenderer.invoke(IPC.liveJoin),
+  leaveListening: (): Promise<void> => ipcRenderer.invoke(IPC.liveLeave),
   closeInterview: (): Promise<void> => ipcRenderer.invoke(IPC.liveClose),
   /**
    * Sends the Live Captions collected since the last ask, up to its last

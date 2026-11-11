@@ -160,6 +160,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC.chatgptOpen, () => briefAssistant())
   ipcMain.handle(IPC.recruitmentGet, (_e, id: number) => loadRecruitment(id))
   ipcMain.handle(IPC.liveStop, () => live.stopListening())
+  ipcMain.handle(IPC.liveJoin, () => live.joinListening())
+  ipcMain.handle(IPC.liveLeave, () => live.leaveListening())
   ipcMain.handle(IPC.liveClose, () => live.close())
   ipcMain.handle(IPC.captionsSend, (_e, to: CaptionTarget) => sendCaptions(to))
   ipcMain.handle(IPC.chatSend, async (_e, text: string) => {

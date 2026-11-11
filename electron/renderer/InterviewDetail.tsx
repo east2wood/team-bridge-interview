@@ -13,9 +13,10 @@ import { isMine } from '@shared/chat'
  * The chat belongs to the round, not to a run of listening, so it is there
  * before Start Listening and after Stop.
  *
- * Somebody who is not the round's interviewer has joined it as an assistant:
- * the same chat, written from the support side, and — while the interviewer
- * is listening — their Live Captions beside it, as they change.
+ * Somebody who is not the round's interviewer is in it as an assistant: the
+ * same chat, written from the support side, and Join Listening where Start
+ * Listening would be — which puts the interviewer's Live Captions beside the
+ * chat, as they change.
  */
 export function InterviewDetail({ live }: { live: LiveSessionState }) {
   const interview = live.interview
@@ -56,7 +57,9 @@ export function InterviewDetail({ live }: { live: LiveSessionState }) {
   // A run that is actually going, as opposed to one that stopped on an error.
   const running = live.status === 'starting' || live.status === 'recording'
   const assistant = live.role === 'assistant'
-  const interviewerName = live.watching?.interviewer.name ?? 'The interviewer'
+  const joined = assistant && live.joined
+  const interviewerName =
+    (live.watching ?? live.liveRun)?.interviewer.name ?? 'The interviewer'
 
   return (
     <div className="chat">
@@ -87,7 +90,7 @@ export function InterviewDetail({ live }: { live: LiveSessionState }) {
         </button>
         {running && live.sessionStartedAt && <Elapsed since={live.sessionStartedAt} />}
         {assistant && live.watching?.startedAt && <Elapsed since={live.watching.startedAt} />}
-        {running && <OpenChatGPT className="compact" />}
+        {(running || joined) && <OpenChatGPT className="compact" />}
         {running && (
           <button className="compact" onClick={() => void window.tb.openLiveCaptions()}>
             Live Captions
@@ -96,6 +99,11 @@ export function InterviewDetail({ live }: { live: LiveSessionState }) {
         {running && (
           <button className="compact" onClick={() => void window.tb.stopListening()}>
             Stop
+          </button>
+        )}
+        {joined && (
+          <button className="compact" onClick={() => void window.tb.leaveListening()}>
+            Leave
           </button>
         )}
         {assistant ? <WatchPill live={live} /> : <StatusPill live={live} />}
@@ -112,8 +120,7 @@ export function InterviewDetail({ live }: { live: LiveSessionState }) {
                       <strong>You are the support team on this round</strong>
                       <p className="muted">
                         What you send goes to the interviewer and to everybody watching on
-                        TeamBridge Web. Their Live Captions appear beside the chat once they start
-                        listening.
+                        TeamBridge Web. Join Listening to see their Live Captions beside the chat.
                       </p>
                     </>
                   ) : (
@@ -143,17 +150,17 @@ export function InterviewDetail({ live }: { live: LiveSessionState }) {
           </div>
 
           <ChatInput
-            placeholder={assistant ? `Message ${live.watching?.interviewer.name ?? 'the interviewer'}…` : undefined}
+            placeholder={assistant ? `Message ${interviewerName === 'The interviewer' ? 'the interviewer' : interviewerName}…` : undefined}
           />
         </div>
 
         {running && <CaptionsPanel />}
-        {assistant && live.watching && <WatchedCaptionsPanel interviewer={interviewerName} />}
+        {joined && <WatchedCaptionsPanel interviewer={interviewerName} live={live.watching !== null} />}
         {details && <RecruitmentPanel interview={interview} onClose={() => setDetails(false)} />}
       </div>
 
       {!running && !assistant && <StartBar live={live} />}
-      {assistant && <AssistantBar live={live} />}
+      {assistant && !joined && <AssistantBar live={live} />}
     </div>
   )
 }
@@ -259,20 +266,24 @@ function StartBar({ live }: { live: LiveSessionState }) {
 }
 
 /**
- * What an assistant has instead of Start Listening: who is listening, or that
- * nobody is yet. Open ChatGPT works the same for them.
+ * What an assistant has instead of Start Listening: Join Listening, which
+ * puts the interviewer's Live Captions beside the chat. Pressed before the
+ * interviewer has started, it waits for them. Only they start or stop it.
  */
 function AssistantBar({ live }: { live: LiveSessionState }) {
-  const name = live.watching?.interviewer.name ?? 'The interviewer'
+  const name = live.liveRun?.interviewer.name ?? 'The interviewer'
   return (
     <footer className="composer composer--start">
       <div className="composer__actions">
+        <button className="primary big" onClick={() => void window.tb.joinListening()}>
+          Join Listening
+        </button>
         <OpenChatGPT className="big" />
       </div>
       <span className="muted small">
-        {live.watching
-          ? `${name} is listening. Their Live Captions are beside the chat.`
-          : 'Waiting for the interviewer to start listening. Only they can start or stop it.'}
+        {live.liveRun
+          ? `${name} is listening now.`
+          : 'The interviewer has not started listening yet. Join now to be let in as soon as they do.'}
       </span>
     </footer>
   )
@@ -318,10 +329,17 @@ function StatusPill({ live }: { live: LiveSessionState }) {
 
 function WatchPill({ live }: { live: LiveSessionState }) {
   const watching = live.watching !== null
+  const label = watching
+    ? 'Watching live'
+    : live.joined
+      ? 'Waiting for the interviewer'
+      : live.liveRun
+        ? 'Interviewer is live'
+        : 'Assistant'
   return (
-    <span className="statuspill" title="You joined this round as its assistant">
-      <span className={`dot ${watching ? 'dot--live' : ''}`} aria-hidden />
-      {watching ? 'Assisting · Live' : 'Assisting · Waiting'}
+    <span className="statuspill" title="You are this round's assistant">
+      <span className={`dot ${watching || (!live.joined && live.liveRun) ? 'dot--live' : ''}`} aria-hidden />
+      {label}
     </span>
   )
 }

@@ -163,7 +163,11 @@ export interface LiveSessionState {
   role: 'interviewer' | 'assistant'
   /** Who this app's key belongs to, once known: to tell one's own messages apart. */
   meId: number | null
-  /** As an assistant: the interviewer's run being watched, or null until they start. */
+  /** As an assistant: the interviewer's open run, or null while they are not listening. */
+  liveRun: WatchedRun | null
+  /** As an assistant: Join Listening was pressed (and Leave has not been). */
+  joined: boolean
+  /** As an assistant: the run being watched — the live run, once joined. */
   watching: WatchedRun | null
   /** The TeamBridge run opened by Start Listening. */
   serverSessionId: number | null
