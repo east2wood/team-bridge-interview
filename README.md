@@ -1,4 +1,4 @@
-# TeamBridge Assist
+# TeamBridge Interview
 
 A Windows desktop assistant for interviews. It opens **Windows Live Captions** to show what is being said, sends the interviewer's questions from the captions to ChatGPT, and keeps a chat open with the support team watching the round on TeamBridge Web.
 

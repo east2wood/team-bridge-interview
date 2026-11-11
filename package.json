@@ -1,5 +1,5 @@
 {
-  "name": "teambridge-assist",
+  "name": "teambridge-interview",
   "version": "0.1.0",
   "private": true,
   "description": "Windows desktop interview assistant: opens Windows Live Captions and answers questions with TeamBridge.",
@@ -33,8 +33,8 @@
     "vite": "^5.4.11"
   },
   "build": {
-    "appId": "com.teambridge.assist",
-    "productName": "TeamBridge Assist",
+    "appId": "com.teambridge.interview",
+    "productName": "TeamBridge Interview",
     "directories": {
       "output": "release",
       "buildResources": "build"

@@ -34,12 +34,12 @@ export class TeamBridgeClient {
   ) {}
 
   async me(): Promise<Identity> {
-    const body = await this.json<{ data: Identity }>('GET', '/api/v1/assist/me')
+    const body = await this.json<{ data: Identity }>('GET', '/api/v1/interview/me')
     return body.data
   }
 
   async interviews(): Promise<Interview[]> {
-    const body = await this.json<{ data: RawInterview[] }>('GET', '/api/v1/assist/interviews')
+    const body = await this.json<{ data: RawInterview[] }>('GET', '/api/v1/interview/interviews')
     return body.data.map(toInterview)
   }
 
@@ -53,7 +53,7 @@ export class TeamBridgeClient {
     const query = after ? `?after=${after}` : ''
     const body = await this.json<{ messages: RawMessage[] }>(
       'GET',
-      `/api/v1/assist/interviews/${interviewId}/messages${query}`,
+      `/api/v1/interview/interviews/${interviewId}/messages${query}`,
     )
     return body.messages.map(toMessage).filter((m): m is AssistMessage => m !== null)
   }
@@ -69,7 +69,7 @@ export class TeamBridgeClient {
   ): Promise<AssistMessage> {
     const body = await this.json<{ message: RawMessage }>(
       'POST',
-      `/api/v1/assist/interviews/${interviewId}/messages`,
+      `/api/v1/interview/interviews/${interviewId}/messages`,
       { content, kind },
     )
     const message = toMessage(body.message)
@@ -86,7 +86,7 @@ export class TeamBridgeClient {
   async recruitment(id: number): Promise<Recruitment> {
     const body = await this.json<{ data: RawRecruitment }>(
       'GET',
-      `/api/v1/assist/recruitments/${id}`,
+      `/api/v1/interview/recruitments/${id}`,
     )
     const raw = body.data
     return {
@@ -123,7 +123,7 @@ export class TeamBridgeClient {
   }
 
   async createSession(input: CreateSessionInput = {}): Promise<AssistSession> {
-    const raw = await this.json<RawSession>('POST', '/api/v1/assist/sessions', {
+    const raw = await this.json<RawSession>('POST', '/api/v1/interview/sessions', {
       interview_id: input.interviewId ?? null,
       audio_source: input.audioSource,
       device_label: input.deviceLabel,
@@ -135,7 +135,7 @@ export class TeamBridgeClient {
 
   /** Marks the run finished. Statuses are live / ended / failed. */
   async endSession(sessionId: number, status: 'ended' | 'failed' = 'ended'): Promise<void> {
-    await this.json('PATCH', `/api/v1/assist/sessions/${sessionId}`, { status })
+    await this.json('PATCH', `/api/v1/interview/sessions/${sessionId}`, { status })
   }
 
   private async json<T>(method: string, path: string, body?: unknown): Promise<T> {

@@ -12,7 +12,7 @@ const log = child('teambridge')
  * URL, the token, and which team the app is pointed at — and a 401 has tested
  * it the other way. The API has no /test_connection for exactly this reason.
  */
-const IDENTITY_PATH = '/api/v1/assist/me'
+const IDENTITY_PATH = '/api/v1/interview/me'
 const TIMEOUT_MS = 8000
 
 /**
