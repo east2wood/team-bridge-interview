@@ -1,6 +1,6 @@
 {
   "name": "teambridge-interview",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Windows desktop interview assistant: opens Windows Live Captions and answers questions with TeamBridge.",
   "main": "./out/main/index.js",
