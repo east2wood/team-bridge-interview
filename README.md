@@ -13,7 +13,7 @@ A Windows desktop assistant for interviews. It opens **Windows Live Captions** t
 
    **Joining as assistant.** Anybody else on the team who opens the round is its assistant (the support team), and sees **Join Listening** where Start Listening would be. Their chat messages go out from the support side, the same as a message from TeamBridge Web. After Join Listening, the interviewer's Live Captions appear beside the assistant's chat and update as they change; pressed before the interviewer has started, it waits and lets them in as soon as the interviewer does. **Leave** stops watching; the chat stays. The captions travel this way: the interviewer's app sends what Live Captions shows to TeamBridge, which passes each change to everybody watching the run.
    Press **Open ChatGPT** (next to Start Listening, and in the header while listening) to open the ChatGPT desktop app with a briefing — the candidate, the job description, and the resume — pasted into the message box. It is not sent: review it and press Enter yourself. The briefing also stays on the clipboard, so if ChatGPT cannot be brought to the front it is one paste away.
-3. While listening, the window splits 60/40: the chat with the support team on the left, Live Captions on the right, refreshed every second. The complete sentences since the last send are strongly highlighted; the sentence still being spoken is lightly highlighted and held back until it ends.
+3. While listening, the window splits 60/40: the chat with the support team on the left, Live Captions on the right, refreshed four times a second. The complete sentences since the last send are strongly highlighted; the sentence still being spoken is lightly highlighted and held back until it ends.
 4. When the interviewer finishes a question, use the buttons under the captions: **Send to assistant** posts the highlighted sentences into the support chat, and **Ask GPT** pastes them into ChatGPT and sends them. Each send starts the next collection just after the last completed sentence. If one button has just sent, the other sends that same question when nothing new has been said, so both can see it — but neither gets it twice. The capture hotkey (default **Ctrl+Alt+Q**, set in **Settings → Hotkeys**) does the same as Ask GPT.
 5. Press **Stop** to finish the run on TeamBridge. Live Captions stays open until you close it.
 
@@ -78,7 +78,9 @@ Other commands:
 ```bash
 npm run typecheck    # both tsconfig projects
 npm run build        # production bundles into out/
-npm run dist         # NSIS installer into release/
+npm run dist         # release: bumps the minor version, builds the installer into release/,
+                     # and copies it to the TeamBridge server's Downloads page
+npm run dist:same    # the same, without the version bump (to rebuild a release)
 ```
 
 ### Two copies at once, for testing
