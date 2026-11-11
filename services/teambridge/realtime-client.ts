@@ -96,10 +96,18 @@ export class RealtimeClient extends EventEmitter {
       // rather than "you were turned away". A desktop app has no browser
       // origin to send, and the server's default rule is that Origin equals
       // its own host, so that is what it gets.
+      //
+      // Certificates are not checked, as they are not for the API requests
+      // (ignore-certificate-errors in main): TeamBridge sits behind Caddy's
+      // own certificate authority, which other machines do not trust — and
+      // Node, unlike Chromium, does not read the Windows certificate store at
+      // all, so without this the socket fails on every machine and the app
+      // falls back to polling.
       socket = new WebSocket(url, {
         headers: { authorization: `Bearer ${config.token}` },
         origin: originOf(config.baseUrl),
         handshakeTimeout: 10_000,
+        rejectUnauthorized: false,
       })
     } catch (err) {
       log.warn({ err: (err as Error).message, url }, 'could not open the realtime socket')
