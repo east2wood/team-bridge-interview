@@ -62,10 +62,13 @@ export class MessagePoller extends EventEmitter {
     if (this.timer) this.schedule(this.delay())
   }
 
-  /** An immediate ask, used to catch up after a reconnect. */
-  pollNow(): void {
-    if (this.interviewId === null) return
-    void this.tick()
+  /**
+   * An immediate ask, used to catch up after a reconnect and by Refresh.
+   * Resolves once the answer is in.
+   */
+  pollNow(): Promise<void> {
+    if (this.interviewId === null) return Promise.resolve()
+    return this.tick()
   }
 
   private delay(): number {

@@ -1,105 +1,48 @@
 import { EventEmitter } from 'node:events'
-import { randomUUID } from 'node:crypto'
 import type {
-  AnswerEvent,
   AssistMessage,
-  CaptureTurn,
   RealtimeEvent,
   RealtimeStatus,
-  TranscriptItem,
   Interview,
   LiveSessionState,
   LiveStatus,
 } from '@shared/api-types'
-import type { Segment } from '@shared/types'
-import type { TeamBridgeClient } from '@services/teambridge/teambridge-client'
+import {
+  TeamBridgeError,
+  toMessage,
+  type RawMessage,
+  type TeamBridgeClient,
+} from '@services/teambridge/teambridge-client'
 import { child } from '@services/logger'
-import type { TranscriptUploader } from '@services/teambridge/transcript-uploader'
 import type { MessagePoller } from '@services/teambridge/message-poller'
 import type { RealtimeClient } from '@services/teambridge/realtime-client'
-import { ListeningPublisher } from '@services/teambridge/listening-publisher'
-import { loadHistory } from './history'
-import type { SessionManager } from './session-manager'
-import type { AnswerManager } from './answer-manager'
+import { openLiveCaptions } from '@services/live-captions'
 
 const log = child('interview')
 
-/** Below this, the turn caught noise rather than speech worth answering. */
-const MIN_TURN_CHARS = 12
-
-/** A committed segment that ends like this finished a thought. */
-const SENTENCE_END = /[.!?]["')\]]?\s*$/
-
 /**
- * Coalescing window for automatic sends.
+ * Orchestrates one interview: the TeamBridge run, and the chat with the people
+ * watching it on the web.
  *
- * Speech arrives as several segments in quick succession, and each one that
- * happens to end in a full stop would otherwise trigger its own flush. Waiting
- * a moment lets a burst settle into one.
- */
-const AUTO_SEND_DEBOUNCE_MS = 400
-
-/**
- * How long Answer waits for the turn's transcript to reach TeamBridge.
- *
- * The prompt is built from the session's completed segments, so answering
- * before they land answers without the question's own words. Bounded because
- * an answer with slightly less context beats a button that hangs.
- */
-const UPLOAD_GRACE_MS = 4000
-
-/**
- * Orchestrates one interview: capture, turns, and answers.
- *
- * The Answer button is a capture boundary. Pressing it means "everything the
- * interviewer has said since the last turn is the question", which removes the
- * hardest part of automatic detection — deciding when a question has ended.
- *
- * Capture and answer generation are independent: the stream keeps running
- * while listening resumes, because an interview does not pause for DeepSeek.
+ * Listening is done by Windows Live Captions, which Start Listening opens.
+ * The run it also opens on TeamBridge is what tells the web the round is live,
+ * and what carries their messages here the moment they are sent.
  */
 export class InterviewSession extends EventEmitter {
   private status: LiveStatus = 'idle'
   private interview: Interview | null = null
   private serverSessionId: number | null = null
-  private turns: CaptureTurn[] = []
-  private activeTurn: CaptureTurn | null = null
   private error: string | undefined
   private sessionStartedAt: number | null = null
-  private sequence = 0
-  private autoSendTimer: NodeJS.Timeout | null = null
-  private autoSending = false
   private messages: AssistMessage[] = []
-  private segments: TranscriptItem[] = []
-  /** Monotonic across the interview, unlike `sequence`, which is per session. */
-  private position = 0
-  private sentPosition = 0
-  private loadingRecord = false
   private realtime: RealtimeStatus = 'disconnected'
-  /**
-   * Hands the sentence in progress to TeamBridge for whoever is watching.
-   *
-   * Not injected: nothing outside this listens to it, and it holds no state
-   * anyone else can act on — it is how partials leave, in the same way the
-   * uploader is how segments leave.
-   */
-  private readonly listening: ListeningPublisher
-  private upload = { pending: 0, failing: false } as {
-    pending: number
-    failing: boolean
-    reason?: string
-  }
 
   constructor(
-    private readonly sessions: SessionManager,
-    private readonly answers: AnswerManager,
-    private readonly uploader: TranscriptUploader,
     private readonly poller: MessagePoller,
     private readonly live: RealtimeClient,
     private readonly clientFor: () => TeamBridgeClient | null,
   ) {
     super()
-    this.listening = new ListeningPublisher(clientFor)
 
     live.on('status', (status: RealtimeStatus) => {
       this.realtime = status
@@ -111,88 +54,11 @@ export class InterviewSession extends EventEmitter {
 
     // A socket that just came up missed whatever happened while it was down.
     // Catching up is an ordinary API call, which is exactly what the poller is.
-    live.on('resync', () => this.poller.pollNow())
+    live.on('resync', () => void this.poller.pollNow())
 
     live.on('event', (event: RealtimeEvent) => this.applyRealtimeEvent(event))
 
-    // Append-only, and by id: the poller never returns one twice, so nothing
-    // above the newest message can move and the reader's place is kept.
-    poller.on('messages', (incoming: AssistMessage[]) => {
-      const known = new Set(this.messages.map((m) => m.id))
-      const fresh = incoming.filter((m) => !known.has(m.id)).map((m) => this.anchor(m))
-      if (fresh.length === 0) return
-      this.messages = [...this.messages, ...fresh]
-      this.publish()
-    })
-
-    uploader.on('status', (status: typeof this.upload) => {
-      this.upload = status
-      // An empty queue means every sequence handed out so far is on the
-      // server. Taken from here rather than from Send, so the transcript stops
-      // looking unsent the moment it is not — the queue drains on its own
-      // between checkpoints.
-      if (status.pending === 0) this.sentPosition = this.position
-      this.publish()
-    })
-
-    // Interviewer speech belongs to the turn in progress. Attribution is
-    // structural — the system channel is the other party — so no guessing.
-    sessions.on('segment', (segment: Segment) => {
-      // TeamBridge gets the whole conversation; the question is built from the
-      // interviewer's half only.
-      this.uploader.enqueue({
-        sequence: (this.sequence += 1),
-        text: segment.text,
-        startedAt: new Date(this.startedAtEpoch(segment.startMs)).toISOString(),
-        endedAt: new Date(this.startedAtEpoch(segment.endMs)).toISOString(),
-        confidence: segment.confidence,
-        speaker: segment.channel === 'system' ? 'interviewer' : 'candidate',
-      })
-
-      // Both halves go on the timeline. The server answers from both, so a
-      // record showing only one would not be the conversation it answered.
-      this.segments = [
-        ...this.segments,
-        {
-          position: (this.position += 1),
-          sequence: this.sequence,
-          text: segment.text,
-          startedAt: this.startedAtEpoch(segment.startMs),
-          speaker: segment.channel === 'system' ? 'interviewer' : 'candidate',
-        },
-      ]
-
-      // The sentence closed, so the guess it was made from is retired. Not
-      // announced: the server pairs the segment with the partial it replaced
-      // when the upload lands, and it is the only one that knows the pairing.
-      if (segment.channel === 'system') this.listening.finalize()
-
-      if (!this.activeTurn || segment.channel !== 'system') return
-      // One block per segment, separated the way the server separates them in
-      // `text_between`. It is easier to read than a paragraph that grows a
-      // sentence at a time, and TeamBridge's copy of the turn replaces this one
-      // as soon as an answer starts — joined differently, the context would
-      // visibly reflow at that moment.
-      this.activeTurn.transcript = `${this.activeTurn.transcript}\n\n${segment.text}`.trim()
-      this.publish()
-
-      // A finished sentence is the natural moment to hand over: the server
-      // works from whole thoughts, and sending mid-phrase would leave it
-      // holding fragments. It also means Answer has almost nothing left to
-      // flush, which is where the wait before an answer used to come from.
-      if (SENTENCE_END.test(segment.text)) this.scheduleAutoSend()
-    })
-
-    // Speech before it has been decided what it was. Shown here the moment it
-    // arrives and passed on for the web to draw; never kept, and never allowed
-    // near a question.
-    sessions.on('partial', (partial: { channel: string; text: string }) => {
-      // One run has one live sentence, so it is the interviewer's: they are
-      // the one being watched, and two channels would overwrite each other.
-      if (partial.channel === 'system') this.listening.update(partial.text)
-    })
-
-    answers.on('event', (event: AnswerEvent) => this.applyAnswerEvent(event))
+    poller.on('messages', (incoming: AssistMessage[]) => this.addMessages(incoming))
   }
 
   snapshot(): LiveSessionState {
@@ -201,12 +67,6 @@ export class InterviewSession extends EventEmitter {
       interview: this.interview,
       serverSessionId: this.serverSessionId,
       sessionStartedAt: this.sessionStartedAt,
-      activeTurn: this.activeTurn,
-      turns: this.turns,
-      segments: this.segments,
-      sentThroughPosition: this.sentPosition,
-      loadingRecord: this.loadingRecord,
-      upload: this.upload,
       messages: this.messages,
       realtime: this.realtime,
       ...(this.error ? { error: this.error } : {}),
@@ -228,70 +88,21 @@ export class InterviewSession extends EventEmitter {
     if (this.status !== 'idle') return
     this.interview = interview
     this.messages = []
-    this.segments = []
-    this.turns = []
-    this.position = 0
-    this.sentPosition = 0
 
-    // Polled for as long as the round is open, not only while listening: a
-    // colleague may send a steer before capture starts.
+    // Polled for as long as the round is open, not only while listening: the
+    // chat is there before the interview starts and after it ends.
     if (interview) this.poller.start(interview.id)
     else this.poller.stop()
 
     this.publish()
-    if (interview) void this.loadRecord(interview.id)
   }
 
   /**
-   * Reads back what earlier runs of this round heard and answered.
+   * Opens Windows Live Captions and the TeamBridge session.
    *
-   * Not awaited by the caller: the round opens immediately and fills in, since
-   * the one thing that must never wait on the network is being able to press
-   * Start Listening.
-   */
-  private async loadRecord(interviewId: number): Promise<void> {
-    const client = this.clientFor()
-    if (!client) return
-
-    this.loadingRecord = true
-    this.publish()
-    try {
-      const history = await loadHistory(client, interviewId)
-      // The round may have been left while this was in flight, in which case
-      // the record it describes is not the one on screen.
-      if (this.interview?.id !== interviewId) return
-      // Listening may also have started. That is fine until something has been
-      // said: once a live segment holds position 1, the record cannot be put
-      // underneath it without renumbering what is already drawn.
-      if (this.position > 0) {
-        log.info({ interviewId }, 'the record arrived after capture began; leaving it out')
-        return
-      }
-
-      this.segments = history.segments
-      // Anything already open stays open, below the record rather than in it.
-      this.turns = [...history.turns, ...this.turns]
-      this.position = history.position
-      // All of it is on the server by definition, so none of it is pending.
-      this.sentPosition = history.position
-      // Messages fetched before the transcript existed were anchored to
-      // nothing. They are placed by time and said to be, rather than left to
-      // `anchor` to work out: everything it would infer from — what has been
-      // uploaded in this run — has just been set to the end of the record, and
-      // would put every one of them at the bottom.
-      this.messages = this.messages.map((message) => this.placeByClock(message))
-    } finally {
-      this.loadingRecord = false
-      this.publish()
-    }
-  }
-
-  /**
-   * Opens the TeamBridge session and starts listening.
-   *
-   * Selecting an interview deliberately does not start capture: the user may
-   * open it minutes early, and recording a corridor conversation is worse
-   * than one extra click.
+   * Selecting an interview deliberately does not start a run: the user may
+   * open it minutes early, and a run opened then would time the interview
+   * from the wrong moment.
    */
   async startListening(): Promise<{ ok: boolean; reason?: string }> {
     if (this.status !== 'idle' && this.status !== 'error') {
@@ -300,271 +111,69 @@ export class InterviewSession extends EventEmitter {
 
     this.setStatus('starting')
 
-    // The session must exist server side before any answer can be asked;
-    // answers are nested under it.
+    const captions = await openLiveCaptions()
+    if (!captions.ok) {
+      this.setStatus('error', captions.reason)
+      return captions
+    }
+
     await this.openServerSession()
 
     this.sessionStartedAt = Date.now()
-    const started = this.sessions.start()
-    if (!started.ok) {
-      // The run was opened a moment ago and will never record: close it as
-      // failed rather than leaving a live session that nothing will finish.
-      await this.endServerSession('failed')
-      this.setStatus('error', started.reason)
-      return started
-    }
-
-    this.emit('capture-start', started.channels)
-    this.beginTurn()
     this.setStatus('recording')
     return { ok: true }
   }
 
-  /**
-   * Sends at a sentence boundary, quietly.
-   *
-   * Same work as the Send button, without the button's visible state: this
-   * happens on its own several times a minute, and announcing each one would
-   * be noise. Send remains for forcing a send mid-sentence, when the
-   * interviewer trails off without finishing.
-   */
-  private scheduleAutoSend(): void {
-    if (this.autoSendTimer) clearTimeout(this.autoSendTimer)
-    this.autoSendTimer = setTimeout(() => {
-      this.autoSendTimer = null
-      void this.autoSend()
-    }, AUTO_SEND_DEBOUNCE_MS)
-  }
-
-  private async autoSend(): Promise<void> {
-    // A manual send already in flight is doing the same work; a second one
-    // would only queue behind it.
-    if (this.status !== 'recording' || this.autoSending) return
-    this.autoSending = true
-    try {
-      await this.sessions.flushPending()
-      await this.uploader.flush(UPLOAD_GRACE_MS)
-      this.markSent()
-    } catch (err) {
-      log.warn({ err }, 'automatic send failed; the queue will retry')
-    } finally {
-      this.autoSending = false
-    }
-  }
-
-  /**
-   * Draws a line under what has been collected and starts a fresh turn.
-   *
-   * For a stretch that should not be answered — small talk, the end of the
-   * last topic — so the next answer is built from what comes after it rather
-   * than from everything since the last one.
-   *
-   * Deliberately small. Listening does not stop, the session is untouched, the
-   * transcript stays where it is and so does every answer already given: the
-   * only thing that moves is where this turn begins.
-   */
-  newTurn(): void {
-    if (this.status !== 'recording') return
-
-    const turn = this.activeTurn
-    if (turn) {
-      turn.status = 'boundary'
-      turn.endedAt = Date.now()
-      turn.throughPosition = this.position
-      turn.context = {
-        fromSequence: turn.fromSequence ?? 1,
-        throughSequence: this.sequence,
-        text: turn.transcript,
-      }
-    }
-
-    this.beginTurn()
-    this.publish()
-    log.info({ position: this.position }, 'started a new turn')
-  }
-
-  /**
-   * Marks the end of a turn that was answered.
-   *
-   * An answer is where a turn finishes: the server has moved its read-mark
-   * past everything it covered, so whatever is said next belongs to the next
-   * turn whether or not anybody says so.
-   */
-  private closeTurn(answered: CaptureTurn): void {
-    const at = answered.throughPosition ?? this.position
-    // Regenerating finishes the same turn again, and one exchange gets one
-    // line under it.
-    if (this.turns.some((t) => t.status === 'boundary' && t.throughPosition === at)) return
-
-    const marker = this.blankTurn()
-    marker.status = 'boundary'
-    marker.endedAt = Date.now()
-    marker.throughPosition = at
-    this.turns = [...this.turns, marker]
-  }
-
-  /**
-   * Records that everything transcribed so far has reached TeamBridge.
-   *
-   * Taken after the queue drains rather than when the send starts: until then
-   * the server does not have it, and showing it as sent would be a promise the
-   * app cannot keep if the upload is still retrying.
-   */
-  private markSent(): void {
-    if (!this.activeTurn) return
-    this.activeTurn.sentTranscript = this.activeTurn.transcript
-    // Everything queued has drained, so all of it is on the server. This is
-    // what a message arriving now was written against.
-    this.sentPosition = this.position
-    this.publish()
-  }
-
-  /**
-   * The capture boundary.
-   *
-   * Stops capture, drains transcription, sends whatever the interviewer said,
-   * then resumes listening — without waiting for the answer, which streams in
-   * parallel.
-   */
-  async answer(): Promise<void> {
-    if (this.status !== 'recording' || !this.activeTurn) return
-
-    const turn = this.activeTurn
-    this.setStatus('finalizing')
-    turn.status = 'transcribing'
-    turn.endedAt = Date.now()
-
-    // Drain the worker without closing the devices. Capture continues
-    // throughout, so nothing is missed while the tail of the question is
-    // transcribed and there is no gap to restart from.
-    await this.sessions.flushPending()
-
-    // Then get those segments to TeamBridge before asking it anything. The
-    // prompt is built from the session's completed transcript, so answering
-    // first would answer without the question's own words. Bounded: a slower
-    // answer beats none if the server is struggling.
-    await this.uploader.flush(UPLOAD_GRACE_MS)
-
-    // Freeze what this answer is based on before anything else can change it.
-    // The next turn starts collecting immediately afterwards, so this is the
-    // only moment the window is unambiguous.
-    turn.throughPosition = this.position
-    turn.context = {
-      fromSequence: turn.fromSequence ?? 1,
-      throughSequence: this.sequence,
-      text: turn.transcript,
-    }
-
-    // No question is named. The server reads one out of the transcript it
-    // already holds — it sees the whole session where this sees one turn, and
-    // it is the party that has to stand behind the answer. What it decided
-    // arrives on the `start` event and is displayed from there.
-    if (turn.transcript.length < MIN_TURN_CHARS) {
-      // Nothing was said. Skipping the call keeps a stray click from spending
-      // a model request.
-      turn.status = 'empty'
-      log.info({ turnId: turn.id, chars: turn.transcript.length }, 'empty turn; skipping')
-    } else if (this.serverSessionId === null) {
-      turn.status = 'failed'
-      turn.error = {
-        code: 'no_session',
-        message: 'No TeamBridge session: answers are unavailable. Check Settings.',
-        retryable: false,
-      }
-    } else {
-      turn.status = 'generating'
-      // Not awaited: the interview carries on while the answer streams.
-      void this.answers.ask({
-        turnId: turn.id,
-        sessionId: this.serverSessionId,
-        context: this.instructionFor(turn),
-      })
-    }
-
-    // Straight into the next turn: listening never stopped.
-    this.beginTurn()
-    this.setStatus('recording')
-  }
-
-  /** Asks a question the user typed, on the same path as a captured one. */
-  async askManually(question: string): Promise<void> {
-    const text = question.trim()
-    if (!text || this.serverSessionId === null) return
-
-    const turn = this.blankTurn()
-    turn.question = text
-    turn.transcript = text
-    turn.endedAt = Date.now()
-    // Typed, so it belongs wherever the transcript had got to.
-    turn.throughPosition = this.position
-    turn.status = 'generating'
-    this.turns = [...this.turns, turn]
-    this.publish()
-
-    await this.answers.ask({
-      turnId: turn.id,
-      sessionId: this.serverSessionId,
-      question: text,
-      context: this.instructionFor(turn),
-    })
-  }
-
-  /** Re-asks a corrected question as a new attempt on a new turn. */
-  async regenerate(turnId: string, question?: string): Promise<void> {
-    const turn = this.turns.find((t) => t.id === turnId)
-    if (!turn || this.serverSessionId === null) return
-
-    const text = (question ?? turn.question ?? '').trim()
-    if (!text) return
-
-    turn.question = text
-    turn.answer = ''
-    turn.status = 'generating'
-    delete turn.error
-    this.publish()
-
-    await this.answers.ask({
-      turnId: turn.id,
-      sessionId: this.serverSessionId,
-      question: text,
-      context: this.instructionFor(turn),
-      // A corrected question is a different question, so it gets a new id.
-      // Retrying the same one keeps its id; that is the difference.
-      requestId: question ? undefined : turn.requestId,
-    })
-  }
-
-  async retry(turnId: string): Promise<void> {
-    const turn = this.turns.find((t) => t.id === turnId)
-    if (!turn) return
-    await this.regenerate(turnId)
-  }
-
   async stopListening(): Promise<void> {
-    if (this.autoSendTimer) clearTimeout(this.autoSendTimer)
-    this.autoSendTimer = null
-    this.answers.cancel()
-    if (this.activeTurn) {
-      this.activeTurn.endedAt = Date.now()
-      this.activeTurn.status = 'completed'
-      this.activeTurn = null
-    }
-    await this.sessions.stop()
-
-    // Flush before completing: the last question must not disappear because
-    // the session was marked ended while its transcript was still in flight.
-    await this.uploader.flush()
     await this.endServerSession('ended')
-
+    this.sessionStartedAt = null
     this.setStatus('idle')
+  }
+
+  /**
+   * Sends a chat message to the people watching the round. Works whether or
+   * not listening has started: the chat belongs to the round, not to a run.
+   */
+  async sendMessage(
+    text: string,
+    kind: 'note' | 'caption' = 'note',
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const content = text.trim()
+    if (!content) return { ok: false, reason: 'Write something to send first.' }
+    if (!this.interview) return { ok: false, reason: 'Open an interview first.' }
+
+    const client = this.clientFor()
+    if (!client) return { ok: false, reason: 'No TeamBridge server is configured. Add it in Settings.' }
+
+    try {
+      const sent = await client.sendMessage(this.interview.id, content, kind)
+      this.addMessages([sent])
+      return { ok: true }
+    } catch (err) {
+      log.warn({ err }, 'could not send a chat message')
+      // A server from before the chat has no route to send to, and answers 404
+      // for the path itself — not "Interview not found", which is a real round
+      // the key cannot see.
+      if (err instanceof TeamBridgeError && err.status === 404 && !/interview/i.test(err.message)) {
+        return {
+          ok: false,
+          reason: 'The message was not sent: this TeamBridge server cannot receive messages from the app yet. It needs the latest server update.',
+        }
+      }
+      return { ok: false, reason: `The message was not sent: ${(err as Error).message}` }
+    }
+  }
+
+  /** Fetches any messages not yet shown, now rather than at the next poll. */
+  refreshMessages(): Promise<void> {
+    return this.poller.pollNow()
   }
 
   /**
    * Opens a run on the server, if there is a server and no run already.
    *
-   * Local capture is still worth having without one, so a failure here is a
-   * warning rather than a refusal — but answers will be unavailable, and the
-   * UI says so.
+   * Live Captions is still worth having without one, so a failure here is a
+   * warning rather than a refusal; the chat still works, by polling.
    */
   private async openServerSession(): Promise<void> {
     const client = this.clientFor()
@@ -574,13 +183,8 @@ export class InterviewSession extends EventEmitter {
       const created = await client.createSession({
         interviewId: this.interview?.id ?? null,
         audioSource: 'system',
-        transcriber: 'faster-whisper',
       })
       this.serverSessionId = created.id
-      this.sequence = 0
-      this.sentPosition = this.position
-      this.uploader.open(created.id)
-      this.listening.open(created.id)
       this.live.connect(created.id)
       log.info({ serverSessionId: created.id }, 'opened TeamBridge session')
     } catch (err) {
@@ -592,21 +196,16 @@ export class InterviewSession extends EventEmitter {
    * Marks the run finished on the server and forgets it.
    *
    * Clearing the id is the point: startListening only opens a session when it
-   * has none, so a session left set here would be reused by the next Start —
-   * posting segments and answers into a run the server has already closed.
+   * has none, so a session left set here would be reused by the next Start.
    */
   private async endServerSession(status: 'ended' | 'failed'): Promise<void> {
     const client = this.clientFor()
     const sessionId = this.serverSessionId
 
-    // Taken down before the run is finished, so a page watching it is not left
-    // with half a sentence under a stopped header.
-    this.listening.close()
-
     // Unsubscribed first, and deliberately: finishing a session broadcasts
     // that it was completed, and a completed session is the app's signal to
     // stop listening. Told about a closure it performed itself, it would stop
-    // capture in the middle of starting a new context.
+    // in the middle of starting a new run.
     this.live.disconnect()
 
     if (client && sessionId !== null) {
@@ -614,124 +213,56 @@ export class InterviewSession extends EventEmitter {
         await client.endSession(sessionId, status)
         log.info({ sessionId, status }, 'marked the TeamBridge session finished')
       } catch (err) {
-        // Worth saying out loud: the transcript is safe, but the run stays
-        // open on the server and somebody has to know that.
+        // Worth saying out loud: the run stays open on the server and
+        // somebody has to know that.
         log.warn({ err, sessionId }, 'could not mark the TeamBridge session finished')
         this.emit('notice', {
           level: 'warn',
-          message: 'The interview was not marked finished on TeamBridge. Its transcript is saved.',
+          message: 'The interview was not marked finished on TeamBridge.',
         })
       }
     }
 
-    this.uploader.close()
     this.serverSessionId = null
-    this.sequence = 0
   }
 
-  /** Leaves the interview entirely, discarding turn history. */
+  /** Leaves the interview entirely. */
   async close(): Promise<void> {
     await this.stopListening()
     this.poller.stop()
     this.messages = []
-    this.segments = []
     this.interview = null
-    this.turns = []
     this.publish()
   }
 
   /* ------------------------------ internals ----------------------------- */
 
   /**
-   * Places a message in the transcript.
+   * Appends messages not already held, in id order. The same message can
+   * arrive three ways — the reply to sending it, the socket, and the poll —
+   * and is shown once.
    *
-   * The server's own mark is used when it sends one. Otherwise the message is
-   * pinned to the last sequence known to have reached TeamBridge, because that
-   * is the most the sender could have been looking at when they wrote it —
-   * which is both the honest answer and one that needs no clock shared with a
-   * machine somewhere else. Messages that predate this run get nothing: they
-   * have no position in a transcript that did not exist yet.
+   * Only the socket announces: a poll also returns what was sent before the
+   * round was opened, and a notification for each of those would be noise.
    */
-  private anchor(message: AssistMessage): AssistMessage {
-    if (message.afterPosition !== null) {
-      // A server mark is a sequence inside the current session; the record is
-      // ordered by position, so it is read through the segment that carries it.
-      const at = this.segments.find((segment) => segment.sequence === message.afterPosition)
-      return { ...message, afterPosition: at?.position ?? this.sentPosition }
-    }
+  private addMessages(incoming: AssistMessage[], announce = false): void {
+    const known = new Set(this.messages.map((m) => m.id))
+    const fresh = incoming.filter((m) => !known.has(m.id))
+    if (fresh.length === 0) return
 
-    // Arrived while this run was uploading, so the sender could only have been
-    // reading what had reached the server by then.
-    if (this.sentPosition > 0) return { ...message, afterPosition: this.sentPosition }
-
-    return this.placeByClock(message)
-  }
-
-  /**
-   * Places a message by the clock.
-   *
-   * For messages with no "what the sender could see" to go on: read back with
-   * the record, or arrived before anything had been uploaded. Time is all they
-   * share with the transcript around them — and the only thing they *can*
-   * share, since the position they would otherwise be pinned to is a fact
-   * about this run, and one of them may be from a run last week.
-   */
-  private placeByClock(message: AssistMessage): AssistMessage {
-    const at = Date.parse(message.createdAt) || 0
-    const last = this.segments.reduce(
-      (found, segment) => (segment.startedAt <= at ? segment.position : found),
-      0,
-    )
-    // Nothing was said before it, so it belongs above the transcript rather
-    // than at an arbitrary point inside it.
-    return { ...message, afterPosition: last > 0 ? last : null }
-  }
-
-  /** Segment offsets are session-relative; TeamBridge stores wall-clock times. */
-  private startedAtEpoch(offsetMs: number): number {
-    return (this.sessionStartedAt ?? Date.now()) + offsetMs
-  }
-
-  private beginTurn(): void {
-    const turn = this.blankTurn()
-    this.activeTurn = turn
-    this.turns = [...this.turns, turn]
+    this.messages = [...this.messages, ...fresh].sort((a, b) => a.id - b.id)
     this.publish()
-  }
-
-  /** A turn object, empty and unattached. */
-  private blankTurn(): CaptureTurn {
-    return {
-      id: randomUUID(),
-      index: this.turns.length + 1,
-      startedAt: Date.now(),
-      transcript: '',
-      // The next segment uploaded belongs to this turn.
-      fromSequence: this.sequence + 1,
-      answer: '',
-      status: 'recording',
+    if (!announce) return
+    for (const message of fresh) {
+      if (message.source === 'web') this.emit('web-message', message)
     }
-  }
-
-  /**
-   * An instruction for how to answer, not conversation history.
-   *
-   * `context` on the request is the asker's own steer — "shorter", "more
-   * technical". Earlier questions used to be sent here, which put transcript
-   * into an instruction field; the server now reads the conversation from the
-   * session's segments itself, so there is nothing for a captured turn to add.
-   */
-  private instructionFor(_turn: CaptureTurn): string | undefined {
-    return undefined
   }
 
   /**
    * Applies a live notification.
    *
-   * Only `assist_message.created` is genuinely new here — everything else
-   * describes something this app just wrote and already has on screen, so it
-   * is reconciliation at most. Treating those as new items would duplicate the
-   * timeline against itself.
+   * Only `assist_message.created` and `session.completed` matter here; the
+   * rest describe things this app no longer does and are acknowledged only.
    */
   private applyRealtimeEvent(event: RealtimeEvent): void {
     // A subscription that has moved on can still deliver one more frame from
@@ -743,106 +274,23 @@ export class InterviewSession extends EventEmitter {
 
     switch (event.type) {
       case 'assist_message.created': {
-        const message = toMessage(event.data)
-        if (!message) return
-        if (this.messages.some((m) => m.id === message.id)) return
-        this.messages = [...this.messages, this.anchor(message)]
-        this.publish()
-        this.emit('web-message', message)
+        const message = toMessage(event.data as RawMessage | null)
+        if (message) this.addMessages([message], true)
         return
       }
 
       case 'session.completed': {
-        // The run was finished elsewhere. Stop listening rather than carrying
-        // on writing into something the server considers closed.
-        if (this.status === 'recording' || this.status === 'finalizing') {
+        // The run was finished elsewhere. Stop rather than carrying on in
+        // something the server considers closed.
+        if (this.status === 'recording') {
           log.warn('the session was completed elsewhere; stopping')
           void this.stopListening()
         }
         return
       }
 
-      case 'transcript.created':
-      case 'question_answer.created':
-      case 'question_answer.updated':
-      case 'session.started':
-      case 'session.updated':
-        // Ours, and already displayed. Kept as acknowledgements only.
-        log.debug({ type: event.type }, 'realtime acknowledgement')
-        return
-
       default:
-        log.debug({ type: event.type }, 'ignoring unknown realtime event')
+        log.debug({ type: event.type }, 'ignoring realtime event')
     }
-  }
-
-  private applyAnswerEvent(event: AnswerEvent): void {
-    const turn = this.turns.find((t) => t.id === event.turnId)
-    // A late event from a superseded turn must not touch a newer one.
-    if (!turn) return
-
-    switch (event.type) {
-      case 'start':
-        turn.requestId = event.requestId
-        turn.questionId = event.questionId
-        // The server is authoritative for both: its question is the one it
-        // actually answered, and its transcript is read from the segments at
-        // render time, so a segment corrected after the fact is reflected
-        // here rather than frozen at the moment the button was pressed.
-        if (event.question) turn.question = event.question
-        if (event.source) turn.questionSource = event.source
-        if (event.context) turn.context = event.context
-        turn.answer = ''
-        turn.status = 'generating'
-        break
-      case 'delta':
-        turn.answer += event.text
-        break
-      case 'done':
-        turn.questionId = event.questionId ?? turn.questionId
-        turn.status = 'completed'
-        this.closeTurn(turn)
-        break
-      case 'error':
-        // The partial answer stays: it is often most of a usable one, and
-        // erasing it on failure is the worst possible moment to lose it.
-        turn.status = 'failed'
-        turn.error = { code: event.code, message: event.message, retryable: event.retryable }
-        break
-      case 'cancelled':
-        if (turn.status === 'generating') turn.status = 'completed'
-        break
-    }
-
-    this.publish()
-  }
-}
-
-/** Narrows a broadcast payload; anything malformed is dropped rather than shown. */
-function toMessage(data: unknown): AssistMessage | null {
-  const raw = data as {
-    id?: number
-    question_id?: number | null
-    question?: string | null
-    type?: string
-    source?: string
-    content?: string
-    sender?: { name?: string | null }
-    created_at?: string
-    after_transcript_sequence?: number | null
-  } | null
-
-  if (!raw || typeof raw.id !== 'number' || !raw.content) return null
-
-  return {
-    id: raw.id,
-    type: raw.type === 'answer' ? 'answer' : 'note',
-    source: raw.source ?? 'web',
-    content: raw.content,
-    question: raw.question ?? null,
-    questionId: raw.question_id ?? null,
-    sender: { name: raw.sender?.name ?? null },
-    createdAt: raw.created_at ?? new Date().toISOString(),
-    afterPosition: raw.after_transcript_sequence ?? null,
   }
 }

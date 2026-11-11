@@ -2,20 +2,17 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/channels'
 import type { Interview, LiveSessionState, Recruitment } from '@shared/api-types'
 import type {
-  AudioChannel,
-  CaptureCommand,
+  CaptionTarget,
+  CaptionsView,
   ConnectionTestResult,
-  EngineStatus,
-  LevelPayload,
-  Partial as PartialText,
+  HotkeyResult,
+  HotkeySetting,
   SecretsInfo,
-  Segment,
-  SessionStatePayload,
   Settings,
 } from '@shared/types'
 
 export interface Notice {
-  level: 'info' | 'warn' | 'error' | 'consent'
+  level: 'info' | 'warn' | 'error'
   message: string
 }
 
@@ -27,20 +24,12 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 
 /**
  * The entire surface the renderer gets. No `ipcRenderer`, no Node, no
- * filesystem — a compromised renderer can send audio frames and ask for a
- * transcript, and nothing else.
+ * filesystem — a compromised renderer can drive the interview and the
+ * settings, and nothing else.
  */
 const api = {
-  onCaptureCommand: (cb: (cmd: CaptureCommand) => void) => subscribe(IPC.onCaptureCommand, cb),
-  onSessionState: (cb: (s: SessionStatePayload) => void) => subscribe(IPC.onSessionState, cb),
-  onPartial: (cb: (p: PartialText) => void) => subscribe(IPC.onPartial, cb),
-  onSegment: (cb: (s: Segment) => void) => subscribe(IPC.onSegment, cb),
-  onEngineStatus: (cb: (s: EngineStatus) => void) => subscribe(IPC.onEngineStatus, cb),
   onNotice: (cb: (n: Notice | null) => void) => subscribe(IPC.onNotice, cb),
-  onLevel: (cb: (l: LevelPayload) => void) => subscribe(IPC.onLevel, cb),
-  onBusy: (cb: (transcribing: boolean) => void) => subscribe(IPC.onBusy, cb),
 
-  reportLevel: (payload: LevelPayload) => ipcRenderer.send(IPC.captureLevel, payload),
   openMain: () => ipcRenderer.send(IPC.mainOpen),
   minimiseToOverlay: () => ipcRenderer.send(IPC.mainMinimise),
 
@@ -56,31 +45,33 @@ const api = {
   selectInterview: (interview: Interview | null) => ipcRenderer.send(IPC.liveSelect, interview),
   startListening: (): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke(IPC.liveStart),
-  newTurn: (): Promise<void> => ipcRenderer.invoke(IPC.liveNewTurn),
+  openLiveCaptions: (): Promise<{ ok: boolean; reason?: string }> =>
+    ipcRenderer.invoke(IPC.liveCaptionsOpen),
+  openChatGPT: (): Promise<{ ok: boolean; reason?: string }> => ipcRenderer.invoke(IPC.chatgptOpen),
   getRecruitment: (id: number): Promise<Recruitment> =>
     ipcRenderer.invoke(IPC.recruitmentGet, id),
-  answerNow: (): Promise<void> => ipcRenderer.invoke(IPC.liveAnswer),
   stopListening: (): Promise<void> => ipcRenderer.invoke(IPC.liveStop),
   closeInterview: (): Promise<void> => ipcRenderer.invoke(IPC.liveClose),
-  askManually: (question: string): Promise<void> => ipcRenderer.invoke(IPC.liveAsk, question),
-  regenerate: (turnId: string, question?: string): Promise<void> =>
-    ipcRenderer.invoke(IPC.liveRegenerate, turnId, question),
+  /**
+   * Sends the Live Captions collected since the last ask, up to its last
+   * complete sentence, to the support chat or to ChatGPT.
+   */
+  sendCaptions: (to: CaptionTarget): Promise<{ ok: boolean; reason?: string }> =>
+    ipcRenderer.invoke(IPC.captionsSend, to),
+  /** Sends a chat message to the people watching the round on the web. */
+  sendChat: (text: string): Promise<{ ok: boolean; reason?: string }> =>
+    ipcRenderer.invoke(IPC.chatSend, text),
+  /** Fetches the open round's messages now. */
+  refreshChat: (): Promise<void> => ipcRenderer.invoke(IPC.chatRefresh),
+  getCaptions: (): Promise<CaptionsView | null> => ipcRenderer.invoke(IPC.captionsGet),
+  onCaptions: (cb: (view: CaptionsView | null) => void) => subscribe(IPC.onCaptions, cb),
 
-  sendFrame: (channel: AudioChannel, pcm: ArrayBuffer) =>
-    ipcRenderer.send(IPC.captureFrame, channel, pcm),
-  captureStarted: () => ipcRenderer.send(IPC.captureStarted),
-  captureFailed: (reason: string) => ipcRenderer.send(IPC.captureFailed, reason),
-
-  startSession: () => ipcRenderer.send(IPC.sessionStart),
-  stopSession: () => ipcRenderer.send(IPC.sessionStop),
-  acknowledgeConsent: () => ipcRenderer.send(IPC.consentAcknowledge),
   dismiss: () => ipcRenderer.send(IPC.overlayDismiss),
 
-  getSettings: (): Promise<Settings & { engine: EngineStatus; session: SessionStatePayload }> =>
-    ipcRenderer.invoke(IPC.settingsGet),
+  getSettings: (): Promise<Settings> => ipcRenderer.invoke(IPC.settingsGet),
   patchSettings: (
-    patch: globalThis.Partial<Settings>,
-  ): Promise<{ settings: Settings; hotkey?: { ok: boolean; reason?: string } }> =>
+    patch: Partial<Settings>,
+  ): Promise<{ settings: Settings; hotkeys: Partial<Record<HotkeySetting, HotkeyResult>> }> =>
     ipcRenderer.invoke(IPC.settingsPatch, patch),
 
   // Secrets: the renderer can store, clear, and see a hint. It can never read
@@ -94,10 +85,6 @@ const api = {
 
   openSettings: () => ipcRenderer.send(IPC.settingsOpen),
   closeSettings: () => ipcRenderer.send(IPC.settingsClose),
-  copyTranscript: (
-    sessionId?: string,
-  ): Promise<{ copied: boolean; chars?: number; reason?: string }> =>
-    ipcRenderer.invoke(IPC.copyTranscript, sessionId),
 }
 
 export type TeamBridgeApi = typeof api

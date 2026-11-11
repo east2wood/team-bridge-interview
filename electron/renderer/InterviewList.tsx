@@ -8,7 +8,19 @@ import type { Interview } from '@shared/api-types'
  * recognising the right round at a glance, and a collapsed control hides
  * exactly the fields — time, company, candidate — that tell them apart.
  */
-export function InterviewList({ onOpen }: { onOpen: (interview: Interview) => void }) {
+/** How often the list reloads itself, for the Live badges. */
+const LIST_REFRESH_MS = 30_000
+
+export function InterviewList({
+  onOpen,
+  refreshKey,
+  onLoading,
+}: {
+  onOpen: (interview: Interview) => void
+  /** Bumped by the header's Refresh button to load the list again. */
+  refreshKey: number
+  onLoading: (loading: boolean) => void
+}) {
   const [state, setState] = useState<{
     loading: boolean
     interviews: Interview[]
@@ -16,29 +28,39 @@ export function InterviewList({ onOpen }: { onOpen: (interview: Interview) => vo
     message?: string
   }>({ loading: true, interviews: [] })
 
-  const load = () => {
-    setState((prev) => ({ ...prev, loading: true }))
+  /** Quietly, the list is updated in place rather than blanked while it loads. */
+  const load = (quiet = false) => {
+    if (!quiet) setState((prev) => ({ ...prev, loading: true }))
     void window.tb.listInterviews().then((result) =>
-      setState({
-        loading: false,
-        interviews: result.interviews,
-        reason: result.reason,
-        message: result.message,
-      }),
+      setState((prev) =>
+        // A quiet reload that failed keeps what is on screen: a list a minute
+        // old beats an error for a hiccup nobody asked about.
+        quiet && result.reason && prev.interviews.length > 0
+          ? prev
+          : {
+              loading: false,
+              interviews: result.interviews,
+              reason: result.reason,
+              message: result.message,
+            },
+      ),
     )
   }
 
-  useEffect(load, [])
+  useEffect(() => load(), [refreshKey])
+
+  // The Live badges are only worth showing if they are current: somebody can
+  // start or stop listening on another machine at any moment.
+  useEffect(() => {
+    const timer = setInterval(() => load(true), LIST_REFRESH_MS)
+    return () => clearInterval(timer)
+  }, [])
+  useEffect(() => onLoading(state.loading), [state.loading, onLoading])
 
   return (
     <div className="list">
       <header className="list__head">
         <h1>Interviews</h1>
-        <span className="grow" />
-        <button onClick={load} disabled={state.loading}>
-          {state.loading ? 'Refreshing…' : 'Refresh'}
-        </button>
-        <button onClick={() => window.tb.openSettings()}>⚙ Settings</button>
       </header>
 
       {state.loading && <p className="muted">Loading…</p>}
@@ -55,7 +77,7 @@ export function InterviewList({ onOpen }: { onOpen: (interview: Interview) => vo
         <Empty
           title="Could not load interviews"
           body={state.message ?? 'TeamBridge did not answer.'}
-          action={{ label: 'Try again', onClick: load }}
+          action={{ label: 'Try again', onClick: () => load() }}
         />
       )}
 
@@ -65,7 +87,7 @@ export function InterviewList({ onOpen }: { onOpen: (interview: Interview) => vo
           // The window is the server's, and saying it plainly saves the user
           // wondering whether the app is broken.
           body="TeamBridge lists rounds you are working from two hours ago to seven days ahead. Nothing falls in that window yet."
-          action={{ label: 'Refresh', onClick: load }}
+          action={{ label: 'Refresh', onClick: () => load() }}
         />
       )}
 
@@ -73,14 +95,25 @@ export function InterviewList({ onOpen }: { onOpen: (interview: Interview) => vo
         <section key={day} className="group">
           <h2>{day}</h2>
           {interviews.map((interview) => (
-            <button key={interview.id} className="row" onClick={() => onOpen(interview)}>
+            <button
+              key={interview.id}
+              className={`row ${interview.live ? 'row--live' : ''}`}
+              onClick={() => onOpen(interview)}
+            >
               <span className="row__time">{formatTime(interview)}</span>
               <span className="row__main">
                 <strong>{interview.position.title ?? 'Untitled round'}</strong>
                 <span className="muted">{interview.company.name ?? 'No company'}</span>
                 {interview.candidate && <span>{interview.candidate.name}</span>}
               </span>
-              <span className="row__status muted">{interview.status}</span>
+              {interview.live && (
+                <span className="livebadge" title="Somebody is listening to this round now">
+                  <span className="dot dot--live" aria-hidden /> Live
+                </span>
+              )}
+              <span className={`row__status muted ${interview.live ? 'row__status--after-badge' : ''}`}>
+                {interview.status}
+              </span>
               <span className="row__chevron" aria-hidden>
                 ›
               </span>

@@ -2,7 +2,7 @@
   "name": "teambridge-assist",
   "version": "0.1.0",
   "private": true,
-  "description": "Windows desktop meeting assistant: system audio capture, local transcription, live overlay.",
+  "description": "Windows desktop interview assistant: opens Windows Live Captions and answers questions with TeamBridge.",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -11,19 +11,16 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "icons": "node scripts/make-icons.mjs",
     "dist": "npm run build && electron-builder",
-    "python:setup": "python -m venv .venv && .venv\\Scripts\\python.exe -m pip install -r services/transcription/worker/requirements.txt",
     "postinstall": "node scripts/make-icons.mjs && electron-builder install-app-deps"
   },
   "dependencies": {
-    "better-sqlite3": "^11.7.0",
+    "koffi": "^3.3.7",
     "pino": "^9.5.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "ws": "^8.21.3",
-    "zustand": "^5.0.2"
+    "ws": "^8.21.3"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
@@ -45,16 +42,6 @@
     "files": [
       "out/**/*",
       "build/*.png"
-    ],
-    "extraResources": [
-      {
-        "from": "services/transcription/worker",
-        "to": "worker",
-        "filter": [
-          "**/*.py",
-          "requirements.txt"
-        ]
-      }
     ],
     "win": {
       "target": [

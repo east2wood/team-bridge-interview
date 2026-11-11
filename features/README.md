@@ -9,12 +9,7 @@ Feature files mirror the service layout, one directory per bounded area:
 | Directory | Covers | Implemented by |
 |---|---|---|
 | `hotkeys/` | Global shortcut registration and modes | `native/global_hotkey.cpp`, `services/settings` |
-| `session/` | Recording lifecycle, first-run consent, crash safety | `main/session_manager` |
-| `audio/` | WASAPI loopback, microphone, buffering, mixing | `native/wasapi_capture.cpp`, `services/audio` |
-| `voice/` | Silero VAD segmentation | `services/voice` |
-| `transcription/` | Python worker lifecycle, live transcript stream | `services/transcription` |
 | `overlay/` | Floating window | `renderer/overlay` |
-| `history/` | Session list, search | `services/history` |
 | `clipboard/` | Copy and auto-copy | `services/clipboard` |
 | `settings/` | All user-configurable state | `services/settings` |
 | `ai/` | Optional LLM features and provider config | `services/ai` |

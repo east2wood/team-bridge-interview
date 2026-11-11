@@ -33,6 +33,71 @@ body {
   overflow: hidden;
 }
 
+/* ------------------------------ app header ------------------------------ */
+
+/* Fixed at the top: a flex item outside every scroller, so whatever scrolls
+   beneath it, it stays. Three columns with equal outer tracks, so the logo is
+   centred on the window rather than on whatever space the buttons leave. */
+.apphead {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.apphead__side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.apphead__side--end {
+  justify-content: flex-end;
+}
+
+.apphead__brand {
+  display: flex;
+  justify-content: center;
+}
+
+.apphead__logo {
+  display: block;
+  height: 30px;
+  width: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* The same pair the web uses: dark lettering on light, white on dark. */
+.apphead__logo--dark {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .apphead__logo--light {
+    display: none;
+  }
+
+  .apphead__logo--dark {
+    display: block;
+  }
+}
+
+/* A notice sits under the header, inset rather than edge to edge. */
+.live > .callout {
+  width: auto;
+  margin: 10px 16px 0;
+}
+
+.live > .loading {
+  padding: 20px;
+}
+
 .grow {
   margin-left: auto;
 }
@@ -91,8 +156,6 @@ input {
   overflow-y: auto;
   scrollbar-width: thin;
   width: 100%;
-  max-width: 720px;
-  margin: 0 auto;
   padding: 18px 20px 40px;
 }
 
@@ -152,6 +215,31 @@ input {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+
+/* A round being listened to right now: the badge says so, and the row's edge
+   carries the same colour so it can be found in a scan down the list. */
+.list .group button.row--live {
+  border-color: color-mix(in srgb, var(--live) 45%, var(--border));
+}
+
+.livebadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--live);
+  background: color-mix(in srgb, var(--live) 12%, transparent);
+}
+
+.row__status--after-badge {
+  margin-left: 0 !important;
 }
 
 .row__status {
@@ -358,6 +446,88 @@ button.link.panel__close {
 
 .panel__error p {
   margin: 0 0 8px;
+}
+
+/* ---------------------------- live captions ----------------------------- */
+
+/* Narrower than the recruitment panel: it is read in glances while listening,
+   and the timeline beside it is still the main thing on screen. */
+/* The listening split: chat 60%, captions 40%. */
+.panel.captions {
+  flex: 0 0 40%;
+  position: relative;
+}
+
+.captions__body {
+  padding-top: 12px;
+}
+
+.captions__text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.captions__asked {
+  color: var(--muted);
+}
+
+/* Exactly what an ask sends, so it reads as a selection, not as emphasis. */
+.captions__collected {
+  color: inherit;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 3px;
+  padding: 1px 0;
+}
+
+/* Collected too, but not sent until the sentence ends: the same colour, lighter. */
+.captions__speaking {
+  color: inherit;
+  font-style: italic;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border-radius: 3px;
+  padding: 1px 0;
+}
+
+.captions__key {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.captions__key--collected {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.captions__key--speaking {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+button.jump.captions__jump {
+  bottom: 96px;
+}
+
+.captions__actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.captions__buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.captions__buttons button {
+  flex: 1 1 0;
 }
 
 /* ----------------------------- markdown --------------------------------- */
@@ -702,6 +872,13 @@ button.jump {
   padding: 18px 20px 22px;
 }
 
+.composer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
 button.big {
   padding: 12px 28px;
   font-size: 15px;
@@ -854,6 +1031,82 @@ button.answerbtn {
 /* A whole reply to read out carries more weight than a passing steer. */
 .web--note .web__text {
   color: var(--muted);
+}
+
+/* -------------------------------- chat ---------------------------------- */
+
+/* Theirs on the left in the web-message colour, yours on the right in the
+   accent: who wrote a line is the first thing to read off it. */
+.chatmsg {
+  max-width: 78%;
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+
+.chatmsg--theirs {
+  margin-right: auto;
+  border-top-left-radius: 2px;
+  background: color-mix(in srgb, var(--tag-mic) 12%, var(--panel));
+}
+
+.chatmsg--mine {
+  margin-left: auto;
+  border-top-right-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+}
+
+.chatmsg__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.chatmsg--mine .chatmsg__head {
+  justify-content: flex-end;
+}
+
+.chatmsg__from {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tag-mic);
+}
+
+.chatmsg--mine .chatmsg__from {
+  color: var(--accent);
+}
+
+.chatmsg__kind {
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+/* What the interviewer said, passed on: quoted, so it does not read as
+   something the candidate wrote. */
+.chatmsg__kind--caption {
+  color: var(--accent);
+}
+
+.chatmsg--caption .chatmsg__text {
+  font-style: italic;
+}
+
+.chatmsg__about {
+  margin: 0 0 4px;
+  font-style: italic;
+}
+
+.chatmsg__text {
+  margin: 0;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  user-select: text;
 }
 
 /* ---------------------------- turn boundary ----------------------------- */
