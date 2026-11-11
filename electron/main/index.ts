@@ -1,3 +1,5 @@
+// First, before anything reads the data folder: a test profile moves it.
+import { profile } from './profile'
 import { join } from 'node:path'
 import {
   app,
@@ -53,11 +55,13 @@ let live: InterviewSession
 const captions = new CaptionCapture()
 
 // Before anything reads settings or Chromium starts: the first run after the
-// rename from TeamBridge Assist brings the old settings and token across.
-migrateUserData()
+// rename from TeamBridge Assist brings the old settings and token across. A
+// test profile starts empty instead: it is there to be somebody else.
+if (!profile) migrateUserData()
 
 // One instance only: two processes fighting over the same hotkey and the same
-// interview run is a support ticket waiting to happen.
+// interview run is a support ticket waiting to happen. The lock is held per
+// data folder, so a test profile runs beside the usual copy.
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {

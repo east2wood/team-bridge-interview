@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, screen, shell } from 'electron'
 import { settings } from '@services/settings/settings'
 import { child } from '@services/logger'
+import { profile } from './profile'
 
 const log = child('windows')
 
@@ -9,7 +10,7 @@ const log = child('windows')
  * The app's name with its version, for window titles: which build somebody is
  * running is the first question when something they report looks wrong.
  */
-const APP_TITLE = `TeamBridge Interview v${app.getVersion()}`
+const APP_TITLE = `TeamBridge Interview v${app.getVersion()}${profile ? ` [${profile}]` : ''}`
 
 /**
  * Keeps the title set here. Each page has a <title> of its own, and without
