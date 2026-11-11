@@ -11,7 +11,9 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "icons": "node scripts/make-icons.mjs",
-    "dist": "npm run build && electron-builder",
+    "dist": "npm run build && npm version minor --no-git-tag-version && electron-builder && npm run publish-release",
+    "dist:same": "npm run build && electron-builder && npm run publish-release",
+    "publish-release": "node scripts/publish-release.mjs",
     "postinstall": "node scripts/make-icons.mjs && electron-builder install-app-deps"
   },
   "dependencies": {

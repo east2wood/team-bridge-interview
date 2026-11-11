@@ -3,7 +3,7 @@ import type { CaptionTarget, CaptionsView } from '@shared/types'
 
 /**
  * The right-hand column while listening: what Live Captions is showing,
- * refreshed every second by main.
+ * refreshed four times a second by main.
  *
  * Split three ways, because that is what the ask buttons act on: text from
  * before the last ask (or before listening began) is faded; everything

@@ -269,16 +269,21 @@ function bindHotkey(name: HotkeySetting): HotkeyResult {
   return { ok: result.ok, reason: result.reason }
 }
 
-/** How often the listening panel's captions are refreshed. */
-const CAPTIONS_POLL_MS = 1000
+/**
+ * How often Live Captions is read while listening. This is most of the delay
+ * between a word appearing for the interviewer and for an assistant — the
+ * server passes a change on in tens of milliseconds — so it is kept short. A
+ * read is a few milliseconds of UI Automation, and nothing is sent unless the
+ * text changed.
+ */
+const CAPTIONS_POLL_MS = 250
 
 let captionsView: CaptionsView | null = null
 let captionsTimer: NodeJS.Timeout | null = null
 
 /**
- * Reads Live Captions once a second while listening, for the panel beside the
- * interview. A read is a few milliseconds of UI Automation, and only a change
- * is sent on.
+ * Reads Live Captions four times a second while listening, for the panel
+ * beside the interview and for everybody watching. Only a change is sent on.
  */
 function watchCaptions(listening: boolean): void {
   if (listening && !captionsTimer) {
