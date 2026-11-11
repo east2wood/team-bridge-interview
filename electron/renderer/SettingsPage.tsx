@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ConnectionTestResult, SecretsInfo, Settings as SettingsShape } from '@shared/types'
-
-type Loaded = SettingsShape & { engine: { state: string; model: string | null; device: string | null } }
+import { useCallback, useEffect, useState } from 'react'
+import type {
+  ConnectionTestResult,
+  HotkeyResult,
+  HotkeySetting,
+  SecretsInfo,
+  Settings as SettingsShape,
+} from '@shared/types'
 
 export function SettingsPage() {
-  const [settings, setSettings] = useState<Loaded | null>(null)
+  const [settings, setSettings] = useState<SettingsShape | null>(null)
   const [secrets, setSecrets] = useState<SecretsInfo | null>(null)
 
   useEffect(() => {
-    void window.tb.getSettings().then((s) => setSettings(s as Loaded))
+    void window.tb.getSettings().then(setSettings)
     void window.tb.getSecrets().then(setSecrets)
   }, [])
 
@@ -181,16 +185,49 @@ function TeamBridgeSection({
 
 const MODIFIERS = new Set(['Control', 'Shift', 'Alt', 'Meta'])
 
+type PatchResult = { hotkeys?: Partial<Record<HotkeySetting, HotkeyResult>> }
+
 function HotkeysSection({
   settings,
   onPatch,
 }: {
   settings: SettingsShape
-  onPatch: (p: Partial<SettingsShape>) => Promise<{ hotkey?: { ok: boolean; reason?: string } }>
+  onPatch: (p: Partial<SettingsShape>) => Promise<PatchResult>
+}) {
+  return (
+    <Section title="Hotkeys">
+      <HotkeyField
+        label="Open Live Captions"
+        setting="hotkey"
+        value={settings.hotkey}
+        onPatch={onPatch}
+      />
+      <HotkeyField
+        label="Ask GPT"
+        hint="Same as the Ask GPT button: sends the captions collected since the last ask, up to the last completed sentence, to ChatGPT. Works while listening."
+        setting="captureHotkey"
+        value={settings.captureHotkey}
+        onPatch={onPatch}
+      />
+    </Section>
+  )
+}
+
+function HotkeyField({
+  label,
+  hint,
+  setting,
+  value,
+  onPatch,
+}: {
+  label: string
+  hint?: string
+  setting: HotkeySetting
+  value: string
+  onPatch: (p: Partial<SettingsShape>) => Promise<PatchResult>
 }) {
   const [capturing, setCapturing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const inputRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!capturing) return
@@ -220,53 +257,34 @@ function HotkeysSection({
       setCapturing(false)
       setError(null)
 
-      const result = await onPatch({ hotkey: accelerator })
-      if (result.hotkey && !result.hotkey.ok) {
-        setError(result.hotkey.reason ?? `${accelerator} could not be registered.`)
+      const result = (await onPatch({ [setting]: accelerator })).hotkeys?.[setting]
+      if (result && !result.ok) {
+        setError(`${result.reason ?? `${accelerator} could not be registered`}. The previous hotkey is kept.`)
       }
     }
 
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [capturing, onPatch])
+  }, [capturing, onPatch, setting])
 
   return (
-    <Section title="Hotkeys">
-      <Field label="Start and stop recording">
+    <>
+      <Field label={label} hint={hint}>
         <div className="row">
           <button
-            ref={inputRef}
             className={`hotkey ${capturing ? 'hotkey--capturing' : ''}`}
             onClick={() => {
               setError(null)
               setCapturing(true)
             }}
           >
-            {capturing ? 'Press a combination…' : settings.hotkey}
+            {capturing ? 'Press a combination…' : value}
           </button>
           {capturing && <span className="muted">Esc to cancel</span>}
         </div>
       </Field>
-
-      <Field label="Mode">
-        <select
-          value={settings.hotkeyMode}
-          onChange={(e) => void onPatch({ hotkeyMode: e.target.value as SettingsShape['hotkeyMode'] })}
-        >
-          <option value="toggle">Toggle — press to start, press again to stop</option>
-          <option value="push-to-talk">Hold to record</option>
-        </select>
-      </Field>
-
-      {settings.hotkeyMode === 'push-to-talk' && (
-        <p className="callout callout--warn">
-          Hold to record is not implemented yet: the global shortcut reports key presses but not
-          releases, so this currently behaves as toggle.
-        </p>
-      )}
-
       {error && <p className="callout callout--error">{error}</p>}
-    </Section>
+    </>
   )
 }
 

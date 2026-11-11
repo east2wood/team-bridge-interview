@@ -19,6 +19,8 @@ export interface Interview {
   /** IANA name, e.g. "America/Chicago". */
   timeZone: string
   status: string
+  /** Somebody is listening to this round now, from any machine. */
+  live: boolean
   position: { title: string | null }
   company: { name: string | null }
   /** Absent when the caller may not see whose round it is. */
@@ -78,32 +80,6 @@ export interface AssistSession {
   segmentCount: number
 }
 
-/**
- * A segment already stored on the server, read back when a round is opened.
- *
- * Distinct from `SegmentUpload`: this is what came back, not what is being
- * sent, and it carries only what the record needs to be drawn.
- */
-export interface StoredSegment {
-  sequence: number
-  text: string
-  startedAt: string | null
-  speaker: 'interviewer' | 'candidate'
-}
-
-/** A question and its answer, read back from a finished run. */
-export interface StoredAnswer {
-  id: number
-  status: string
-  question: string
-  answer: string
-  source?: QuestionSource
-  turn: { fromSequence: number; throughSequence: number; text: string } | null
-  askedAt: string | null
-  completedAt: string | null
-  error: string | null
-}
-
 export interface CreateSessionInput {
   interviewId?: number | null
   audioSource?: string
@@ -112,43 +88,26 @@ export interface CreateSessionInput {
   language?: string | null
 }
 
-/** One committed segment, as TeamBridge stores it. */
-export interface SegmentUpload {
-  /** Identity, not a counter: re-sending a sequence is a correction. */
-  sequence: number
-  text: string
-  startedAt: string
-  endedAt: string
-  confidence?: number
-  speaker?: 'interviewer' | 'candidate'
-}
-
 /**
- * Something a colleague watching the round sent to the assistant.
+ * One message in the chat between the round and the people watching it.
  *
- * The other half of what the app shows, and deliberately not mixed in with
- * generated answers: one is what a model wrote and one is what a person wrote,
- * and knowing which is most of knowing whether to trust it.
+ * From the web it is a colleague's note, or a whole suggested answer to read
+ * out; from the desktop it is the person in the round writing back.
  */
 export interface AssistMessage {
   id: number
-  /** 'answer' is a whole reply to read out; 'note' is a steer to work in. */
-  type: 'answer' | 'note'
-  source: string
+  /**
+   * 'answer' is a whole reply to read out; 'note' is a steer or a chat line;
+   * 'caption' is what the interviewer said, sent on from Live Captions.
+   */
+  type: 'answer' | 'note' | 'caption'
+  /** Who wrote it: somebody watching on the web, or this app. */
+  source: 'web' | 'desktop'
   content: string
   /** The question it was sent about, when it was sent about one. */
   question: string | null
-  questionId: number | null
   sender: { name: string | null }
   createdAt: string
-  /**
-   * Where in the transcript this was written, so it can be dropped back in.
-   *
-   * Stamped on arrival from what had been uploaded by then, which is exactly
-   * what the sender could have been reading. Null for anything that arrived
-   * before this run started, which has no place in a transcript it predates.
-   */
-  afterPosition: number | null
 }
 
 export type RealtimeStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting'
@@ -166,160 +125,6 @@ export interface RealtimeEvent {
   data: unknown
 }
 
-/** How the question was arrived at, according to the server. */
-export type QuestionSource = 'detected' | 'manual' | 'derived'
-
-export interface AnswerRequest {
-  /**
-   * What to answer, when the asker names it themselves.
-   *
-   * Omitted for a captured turn: the server reads the question out of the
-   * transcript it already holds, and it is the only party that sees all of it.
-   */
-  question?: string
-  context?: string
-  /**
-   * The app's own name for this request. Kept identical across retries: that
-   * is what makes the server treat a retry as the same question rather than a
-   * second one, and what makes a dropped stream recoverable.
-   */
-  clientRequestId: string
-}
-
-/**
- * What the renderer sees.
- *
- * Every variant carries both ids. requestId discards a late delta from a
- * cancelled request; turnId stops one turn's answer being written into the
- * next one, which is the failure mode when the user presses Answer again
- * while the previous stream is still running.
- */
-export type AnswerEvent =
-  | {
-      type: 'start'
-      turnId: string
-      requestId: string
-      questionId?: number
-      /** The server's question and the transcript behind it, both authoritative. */
-      question?: string
-      source?: QuestionSource
-      context?: { fromSequence: number; throughSequence: number; text: string }
-    }
-  | { type: 'delta'; turnId: string; requestId: string; text: string }
-  | { type: 'done'; turnId: string; requestId: string; questionId?: number }
-  | {
-      type: 'error'
-      turnId: string
-      requestId: string
-      code: string
-      message: string
-      retryable: boolean
-    }
-  | { type: 'cancelled'; turnId: string; requestId: string }
-
-export type AnswerStatus =
-  | 'idle'
-  | 'connecting'
-  | 'streaming'
-  | 'completed'
-  | 'failed'
-  | 'cancelled'
-
-export interface StreamingAnswer {
-  requestId: string
-  questionId?: number
-  question: string
-  text: string
-  status: AnswerStatus
-  error?: { code: string; message: string; retryable: boolean }
-}
-
-/**
- * One press of Answer to the next.
- *
- * The button is the capture boundary: everything the interviewer said since
- * the turn began is the question. That removes the hardest part of automatic
- * detection — deciding whether a question has finished — because the user has
- * just said so.
- */
-/**
- * One committed stretch of interviewer speech, as its own timeline entry.
- *
- * Kept as a list rather than one growing string because the conversation is
- * not only the words: a colleague's message belongs at the point in the
- * transcript where it was sent, and that point can only be named if the
- * segments either side of it are separate things.
- */
-export interface TranscriptItem {
-  /**
-   * Place in the interview. Assigned here, monotonic, and never reset.
-   *
-   * Distinct from `sequence` because starting a new context opens a new server
-   * session, and sequences begin again at one inside it. Ordering the record by
-   * something that restarts would fold the second half into the first.
-   */
-  position: number
-  /** Upload identity within its session; what the server answers in terms of. */
-  sequence: number
-  text: string
-  /** When it was said, not when it was transcribed or uploaded. */
-  startedAt: number
-  speaker: 'interviewer' | 'candidate'
-}
-
-export interface CaptureTurn {
-  id: string
-  index: number
-  startedAt: number
-  endedAt?: number
-  /** Interviewer speech captured during the turn, as transcribed. */
-  transcript: string
-  /**
-   * What the answer was based on, frozen when Answer was pressed.
-   *
-   * Kept as evidence: the question is a normalisation of this, and without it
-   * a surprising question or answer has nothing to check against. The range is
-   * the segment window uploaded during the turn, so it can be reconciled with
-   * what the server stored.
-   */
-  context?: {
-    fromSequence: number
-    throughSequence: number
-    text: string
-  }
-  /** Where this turn's segment window opened; closed into `context` on Answer. */
-  fromSequence?: number
-  /** Where the turn ends in the record. What places it on the timeline. */
-  throughPosition?: number
-  /**
-   * The part of the transcript already sent to TeamBridge.
-   *
-   * Always a prefix of `transcript`, so what is still only heard locally is
-   * the remainder. The distinction is the point: the context box shows what
-   * the server has, and Listening shows what it does not have yet.
-   */
-  sentTranscript?: string
-  /** What the server says it answered. Absent until the stream starts. */
-  question?: string
-  /** Set once the server says how it arrived at the question. */
-  questionSource?: QuestionSource
-  requestId?: string
-  questionId?: number
-  answer: string
-  status: TurnStatus
-  error?: { code: string; message: string; retryable: boolean }
-}
-
-export type TurnStatus =
-  | 'recording'
-  /** Not a turn of its own: the line under one turn where the next begins. */
-  | 'boundary'
-  | 'transcribing'
-  | 'generating'
-  | 'completed'
-  | 'empty'
-  | 'failed'
-
 /**
  * The live session's state.
  *
@@ -327,26 +132,16 @@ export type TurnStatus =
  * isRestarting has states that cannot be reasoned about, and the restart is
  * exactly where they would go wrong.
  */
-export type LiveStatus = 'idle' | 'starting' | 'recording' | 'finalizing' | 'error'
+export type LiveStatus = 'idle' | 'starting' | 'recording' | 'error'
 
 export interface LiveSessionState {
   status: LiveStatus
   interview: Interview | null
-  /** The TeamBridge session id; answers are nested under it. */
+  /** The TeamBridge run opened by Start Listening. */
   serverSessionId: number | null
-  /** When this run of listening began. The turn's own start is on the turn. */
+  /** When this run of listening began. */
   sessionStartedAt: number | null
-  activeTurn: CaptureTurn | null
-  turns: CaptureTurn[]
-  /** Transcript sync, so an unreachable server is visible rather than silent. */
-  upload: { pending: number; failing: boolean; reason?: string }
-  /** Messages sent from the web by people watching this round. */
-  /** Committed speech, oldest first. */
-  segments: TranscriptItem[]
-  /** Everything up to here has reached TeamBridge. */
-  sentThroughPosition: number
-  /** True while earlier runs of this round are being read back. */
-  loadingRecord: boolean
+  /** The chat with the people watching this round, oldest first. */
   messages: AssistMessage[]
   /** Live connection state. Kept apart from listening: audio may be fine. */
   realtime: RealtimeStatus

@@ -1,9 +1,23 @@
 import { join } from 'node:path'
-import { BrowserWindow, screen, shell } from 'electron'
+import { app, BrowserWindow, screen, shell } from 'electron'
 import { settings } from '@services/settings/settings'
 import { child } from '@services/logger'
 
 const log = child('windows')
+
+/**
+ * The app's name with its version, for window titles: which build somebody is
+ * running is the first question when something they report looks wrong.
+ */
+const APP_TITLE = `TeamBridge Assist v${app.getVersion()}`
+
+/**
+ * Keeps the title set here. Each page has a <title> of its own, and without
+ * this the page replaces the window's title as soon as it loads.
+ */
+function keepTitle(win: BrowserWindow): void {
+  win.on('page-title-updated', (event) => event.preventDefault())
+}
 
 const OVERLAY_WIDTH = 420
 const OVERLAY_HEIGHT = 200
@@ -95,10 +109,8 @@ export function getMainWindow(): BrowserWindow | null {
 /**
  * The Live Interview window: the app's primary surface.
  *
- * Capture deliberately does not live here. getDisplayMedia is renderer-only,
- * and this window can be closed, so the overlay — which is created once and
- * only ever hidden — stays the capture host. This window is a view and a set
- * of controls over session state held in main.
+ * A view and a set of controls over session state held in main, so it can be
+ * closed and reopened without losing the interview.
  */
 export function showMain(): BrowserWindow {
   const existing = getMainWindow()
@@ -115,7 +127,7 @@ export function showMain(): BrowserWindow {
     minWidth: 900,
     minHeight: 560,
     show: false,
-    title: 'TeamBridge Assist',
+    title: APP_TITLE,
     autoHideMenuBar: true,
     backgroundColor: '#111217',
     webPreferences: {
@@ -127,6 +139,7 @@ export function showMain(): BrowserWindow {
   })
 
   win.setMenuBarVisibility(false)
+  keepTitle(win)
   win.once('ready-to-show', () => win.show())
 
   // Minimising is the documented way into floating capture mode: the small
@@ -175,7 +188,7 @@ export function showSettings(): BrowserWindow {
     minWidth: 460,
     minHeight: 480,
     show: false,
-    title: 'TeamBridge Assist — Settings',
+    title: `${APP_TITLE} — Settings`,
     autoHideMenuBar: true,
     backgroundColor: '#111217',
     webPreferences: {
@@ -187,6 +200,7 @@ export function showSettings(): BrowserWindow {
   })
 
   win.setMenuBarVisibility(false)
+  keepTitle(win)
   win.once('ready-to-show', () => win.show())
   win.on('closed', () => {
     settingsWindow = null

@@ -2,42 +2,34 @@ import { join } from 'node:path'
 import {
   app,
   BrowserWindow,
-  clipboard,
   dialog,
   ipcMain,
   Menu,
   nativeImage,
   nativeTheme,
   Notification,
-  session,
   Tray,
 } from 'electron'
-import {
-  MODEL_LABELS,
-  SOURCE_LABELS,
-  WHISPER_MODELS,
-  type AudioChannel,
-  type AudioSource,
-  type CaptureCommand,
-  type LevelPayload,
-  type SecretsInfo,
-  type Settings,
-  type WhisperModel,
+import type {
+  CaptionTarget,
+  CaptionsView,
+  HotkeyResult,
+  HotkeySetting,
+  SecretsInfo,
+  Settings,
 } from '@shared/types'
 import { IPC } from '@shared/channels'
 import type { Recruitment } from '@shared/api-types'
 import { child } from '@services/logger'
 import { settings } from '@services/settings/settings'
-import { closeDatabase, openDatabase } from '@services/history/db'
-import * as repo from '@services/history/session-repo'
-import { WhisperService } from '@services/transcription/whisper-service'
+import { openLiveCaptions, readLiveCaptions } from '@services/live-captions'
+import { pasteIntoChatGPT } from '@services/chatgpt'
 import { TeamBridgeClient } from '@services/teambridge/teambridge-client'
-import { TranscriptUploader } from '@services/teambridge/transcript-uploader'
 import { MessagePoller } from '@services/teambridge/message-poller'
 import { RealtimeClient } from '@services/teambridge/realtime-client'
-import { SessionManager } from './session-manager'
-import { AnswerManager } from './answer-manager'
 import { InterviewSession } from './interview-session'
+import { buildBriefing } from './briefing'
+import { CaptionCapture } from './caption-capture'
 import { registerHotkey, unregisterAll } from './hotkeys'
 import { testConnection, normaliseUrl } from '@services/teambridge/connection'
 import {
@@ -54,17 +46,13 @@ import {
 const log = child('main')
 
 let tray: Tray | null = null
-let whisper: WhisperService
-let sessions: SessionManager
-let answers: AnswerManager
-let uploader: TranscriptUploader
 let poller: MessagePoller
 let realtime: RealtimeClient
 let live: InterviewSession
-let lastFinishedSessionId: string | null = null
+const captions = new CaptionCapture()
 
 // One instance only: two processes fighting over the same hotkey and the same
-// SQLite file is a support ticket waiting to happen.
+// interview run is a support ticket waiting to happen.
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
@@ -75,16 +63,6 @@ if (!app.requestSingleInstanceLock()) {
 async function bootstrap(): Promise<void> {
   app.setAppUserModelId('com.teambridge.assist')
 
-  openDatabase()
-  const repaired = repo.repairInterruptedSessions()
-  if (repaired > 0) log.info({ repaired }, 'repaired sessions interrupted by a crash')
-
-  configureLoopbackCapture()
-
-  whisper = new WhisperService(whisperOptions())
-  sessions = new SessionManager(whisper)
-  answers = new AnswerManager(teamBridgeClient)
-  uploader = new TranscriptUploader(teamBridgeClient)
   poller = new MessagePoller(teamBridgeClient)
   realtime = new RealtimeClient(() => {
     const store = settings()
@@ -92,66 +70,20 @@ async function bootstrap(): Promise<void> {
     const token = store.getApiKey()
     return url && token ? { baseUrl: url, token } : null
   })
-  live = new InterviewSession(sessions, answers, uploader, poller, realtime, teamBridgeClient)
+  live = new InterviewSession(poller, realtime, teamBridgeClient)
 
   wireEvents()
   registerIpc()
   applyTheme()
-  createOverlay() // capture host: created once, only ever hidden
+  createOverlay() // created once, only ever hidden
   showMain()
   createTray()
-  applyHotkey()
-
-  whisper.start()
+  bindHotkey('hotkey')
+  bindHotkey('captureHotkey')
 
   app.on('window-all-closed', () => {
     // The overlay closing is not a reason to quit — we live in the tray.
   })
-}
-
-/**
- * Grants our own renderer WASAPI loopback capture. Without this handler
- * getDisplayMedia is rejected outright in Electron.
- */
-function configureLoopbackCapture(): void {
-  session.defaultSession.setDisplayMediaRequestHandler(
-    (request, callback) => {
-      log.info(
-        {
-          videoRequested: request.videoRequested,
-          audioRequested: request.audioRequested,
-          frame: request.frame?.url,
-        },
-        'display-media requested',
-      )
-      try {
-        // Audio only: omit `video` entirely. Electron validates the property
-        // whenever the key is present, so `video: undefined` throws
-        // "video must be a WebFrameMain or DesktopCapturerSource" before
-        // capture even starts. The renderer must correspondingly request
-        // `video: false`, or this fails with "Video was requested, but no
-        // video stream was provided".
-        callback({ audio: 'loopback' })
-      } catch (err) {
-        // Without this the rejection is unhandled and the renderer sees only
-        // a generic AbortError with no clue what went wrong.
-        log.error({ err }, 'display-media request handler failed')
-        callback({})
-      }
-    },
-    { useSystemPicker: false },
-  )
-}
-
-function whisperOptions() {
-  const cfg = settings().all()
-  return {
-    pythonPath: cfg.pythonPath,
-    model: cfg.model,
-    device: cfg.gpu === 'off' ? ('cpu' as const) : ('auto' as const),
-    language: cfg.language,
-    partials: cfg.partials,
-  }
 }
 
 /**
@@ -174,21 +106,11 @@ function send(channel: string, payload?: unknown): void {
 }
 
 function wireEvents(): void {
-  sessions.on('state', (payload) => {
-    send(IPC.onSessionState, payload)
+  live.on('state', (state) => {
+    send(IPC.onLiveState, state)
     updateTray()
+    watchCaptions(state.status === 'recording')
   })
-  sessions.on('busy', (transcribing: boolean) => send(IPC.onBusy, transcribing))
-  sessions.on('no-audio', (quietForMs: number) =>
-    send(IPC.onNotice, {
-      level: 'warn',
-      message: `No audio detected for ${Math.round(quietForMs / 1000)} seconds. Check that audio is playing to the device being captured.`,
-    }),
-  )
-  sessions.on('audio-restored', () => send(IPC.onNotice, null))
-  sessions.on('partial', (payload) => send(IPC.onPartial, payload))
-  sessions.on('segment', (payload) => send(IPC.onSegment, payload))
-  live.on('state', (state) => send(IPC.onLiveState, state))
   live.on('notice', (notice) => send(IPC.onNotice, notice))
   live.on('web-message', (message: { sender: { name: string | null } }) => {
     // Worth a nudge only when the window is not being looked at; in view it
@@ -201,46 +123,9 @@ function wireEvents(): void {
       }).show()
     }
   })
-  live.on('capture-start', (channels: AudioChannel[]) =>
-    send(IPC.onCaptureCommand, { action: 'start', channels } satisfies CaptureCommand),
-  )
-  sessions.on('capture-stop', () =>
-    send(IPC.onCaptureCommand, { action: 'stop', channels: [] } satisfies CaptureCommand),
-  )
-
-  whisper.on('status', (status) => {
-    send(IPC.onEngineStatus, status)
-    updateTray()
-  })
-  whisper.on('degraded', (message: string) => {
-    log.warn({ message }, 'engine started in a degraded mode')
-    send(IPC.onNotice, { level: 'warn', message })
-  })
-  whisper.on('fatal', (reason: string) => {
-    log.error({ reason }, 'transcription engine failed')
-    send(IPC.onNotice, { level: 'error', message: reason })
-  })
 }
 
 function registerIpc(): void {
-  ipcMain.on(IPC.sessionStart, () => startSession())
-  ipcMain.on(IPC.sessionStop, () => void stopSession())
-
-  ipcMain.on(IPC.captureStarted, () => sessions.captureStarted())
-  ipcMain.on(IPC.captureFailed, (_e, reason: string) => sessions.captureFailed(reason))
-
-  // Hot path: ~50 messages/second/channel while recording.
-  ipcMain.on(IPC.captureFrame, (_e, channel: AudioChannel, buffer: ArrayBuffer) => {
-    sessions.pushAudio(channel, new Int16Array(buffer))
-  })
-
-  // Levels arrive throttled from the capture host and fan out to every window
-  // so the meter works wherever the user is looking.
-  ipcMain.on(IPC.captureLevel, (_e, payload: LevelPayload) => {
-    sessions.noteLevel(payload.rms)
-    send(IPC.onLevel, payload)
-  })
-
   ipcMain.handle(IPC.interviewsList, async () => {
     const client = teamBridgeClient()
     if (!client) return { ok: false, reason: 'not_configured', interviews: [] }
@@ -255,30 +140,29 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.liveGet, () => live.snapshot())
   ipcMain.on(IPC.liveSelect, (_e, interview) => live.selectInterview(interview))
-  ipcMain.handle(IPC.liveStart, () => live.startListening())
-  ipcMain.handle(IPC.liveNewTurn, () => live.newTurn())
-
-  // Read once and kept: a recruitment does not change during the round it is
-  // being read for, and the panel is opened and closed repeatedly.
-  const recruitments = new Map<number, Recruitment>()
-  ipcMain.handle(IPC.recruitmentGet, async (_e, id: number): Promise<Recruitment> => {
-    const cached = recruitments.get(id)
-    if (cached) return cached
-
-    const client = teamBridgeClient()
-    if (!client) throw new Error('No TeamBridge server is configured. Add it in Settings.')
-
-    const recruitment = await client.recruitment(id)
-    recruitments.set(id, recruitment)
-    return recruitment
+  ipcMain.handle(IPC.liveStart, async () => {
+    const result = await live.startListening()
+    if (result.ok) {
+      // Captions already showing belong to before this run; the first capture
+      // starts from here.
+      const showing = readLiveCaptions()
+      captions.reset(showing.ok ? showing.text : '')
+    }
+    return result
   })
-  ipcMain.handle(IPC.liveAnswer, () => live.answer())
+  ipcMain.handle(IPC.liveCaptionsOpen, () => launchLiveCaptions())
+  ipcMain.handle(IPC.chatgptOpen, () => briefAssistant())
+  ipcMain.handle(IPC.recruitmentGet, (_e, id: number) => loadRecruitment(id))
   ipcMain.handle(IPC.liveStop, () => live.stopListening())
   ipcMain.handle(IPC.liveClose, () => live.close())
-  ipcMain.handle(IPC.liveAsk, (_e, question: string) => live.askManually(question))
-  ipcMain.handle(IPC.liveRegenerate, (_e, turnId: string, question?: string) =>
-    live.regenerate(turnId, question),
-  )
+  ipcMain.handle(IPC.captionsSend, (_e, to: CaptionTarget) => sendCaptions(to))
+  ipcMain.handle(IPC.chatSend, async (_e, text: string) => {
+    const result = await live.sendMessage(text)
+    if (!result.ok && result.reason) send(IPC.onNotice, { level: 'error', message: result.reason })
+    return result
+  })
+  ipcMain.handle(IPC.chatRefresh, () => live.refreshMessages())
+  ipcMain.handle(IPC.captionsGet, () => captionsView)
 
   ipcMain.on(IPC.mainOpen, () => showMain())
   ipcMain.on(IPC.mainMinimise, () => {
@@ -286,37 +170,31 @@ function registerIpc(): void {
     showOverlay()
   })
 
-  ipcMain.handle(IPC.settingsGet, () => ({
-    ...settings().all(),
-    engine: whisper.getStatus(),
-    session: sessions.snapshot(),
-  }))
+  ipcMain.handle(IPC.settingsGet, () => settings().all())
 
   ipcMain.handle(IPC.settingsPatch, async (_e, patch: Partial<Settings>) => {
-    const before = settings().all()
     // Store the server URL in a canonical form so "example.com/" and
     // "https://example.com" do not behave differently.
     if (patch.serverUrl !== undefined) patch.serverUrl = normaliseUrl(patch.serverUrl)
-    const after = settings().patch(patch)
+    const before = settings().all()
+    let after = settings().patch(patch)
 
     if (patch.theme !== undefined) applyTheme()
 
-    let hotkey: { ok: boolean; reason?: string } | undefined
-    if (patch.hotkey !== undefined || patch.hotkeyMode !== undefined) hotkey = applyHotkey()
-
-    const engineChanged =
-      after.model !== before.model ||
-      after.gpu !== before.gpu ||
-      after.language !== before.language ||
-      after.partials !== before.partials
-
-    // Reloading the model mid-recording would lose the tail of the session,
-    // so a change made while recording applies to the next one.
-    if (engineChanged && !sessions.isRecording()) {
-      await whisper.restartWith(whisperOptions())
+    const hotkeys: Partial<Record<HotkeySetting, HotkeyResult>> = {}
+    for (const name of HOTKEY_SETTINGS) {
+      if (patch[name] === undefined) continue
+      const result = bindHotkey(name)
+      hotkeys[name] = result
+      // A combination that could not be registered is not kept: the old one
+      // still works, and saving the new one would leave neither.
+      if (!result.ok) {
+        after = settings().patch({ [name]: before[name] })
+        bindHotkey(name)
+      }
     }
     updateTray()
-    return { settings: after, hotkey }
+    return { settings: after, hotkeys }
   })
 
   ipcMain.handle(IPC.secretsGet, (): SecretsInfo => {
@@ -355,37 +233,108 @@ function registerIpc(): void {
   ipcMain.on(IPC.settingsOpen, () => showSettings())
   ipcMain.on(IPC.settingsClose, () => getSettingsWindow()?.close())
 
-  ipcMain.handle(IPC.transcriptGet, (_e, sessionId: string) => repo.transcriptText(sessionId))
-
-  ipcMain.handle(IPC.copyTranscript, (_e, sessionId?: string) => {
-    const id = sessionId ?? lastFinishedSessionId
-    if (!id) return { copied: false, reason: 'there is no transcript to copy' }
-    const text = repo.transcriptText(id)
-    if (!text.trim()) return { copied: false, reason: 'this session has no transcript' }
-    clipboard.writeText(text)
-    return { copied: true, chars: text.length }
-  })
-
-  ipcMain.on(IPC.consentAcknowledge, () => {
-    settings().patch({ consentAcknowledged: true })
-    startSession()
-  })
-
   ipcMain.on(IPC.overlayDismiss, () => hideOverlay())
 }
 
-function applyHotkey(): { ok: boolean; reason?: string } {
-  const cfg = settings().all()
-  const result = registerHotkey(cfg.hotkey, { onTrigger: toggleSession })
+const HOTKEY_SETTINGS: HotkeySetting[] = ['hotkey', 'captureHotkey']
+
+const HOTKEY_ACTIONS: Record<HotkeySetting, { label: string; run: () => void }> = {
+  hotkey: { label: 'opening Live Captions', run: () => void launchLiveCaptions() },
+  captureHotkey: { label: 'Ask GPT', run: () => void sendCaptions('chatgpt') },
+}
+
+function bindHotkey(name: HotkeySetting): HotkeyResult {
+  const action = HOTKEY_ACTIONS[name]
+  const result = registerHotkey(action.label, settings().get(name), action.run)
   if (!result.ok) {
-    log.warn({ result }, 'recording hotkey unavailable')
-    const win = getOverlay()
-    win?.webContents.send(IPC.onNotice, {
+    log.warn({ name, result }, 'hotkey unavailable')
+    send(IPC.onNotice, {
       level: 'warn',
-      message: `${result.accelerator} could not be registered: ${result.reason}. Use the tray menu to record.`,
+      message: `${result.accelerator} could not be registered for ${action.label}: ${result.reason}. The tray menu does the same.`,
     })
   }
   return { ok: result.ok, reason: result.reason }
+}
+
+/** How often the listening panel's captions are refreshed. */
+const CAPTIONS_POLL_MS = 1000
+
+let captionsView: CaptionsView | null = null
+let captionsTimer: NodeJS.Timeout | null = null
+
+/**
+ * Reads Live Captions once a second while listening, for the panel beside the
+ * interview. A read is a few milliseconds of UI Automation, and only a change
+ * is sent on.
+ */
+function watchCaptions(listening: boolean): void {
+  if (listening && !captionsTimer) {
+    captionsTimer = setInterval(refreshCaptions, CAPTIONS_POLL_MS)
+    refreshCaptions()
+  } else if (!listening && captionsTimer) {
+    clearInterval(captionsTimer)
+    captionsTimer = null
+    captionsView = null
+    send(IPC.onCaptions, null)
+  }
+}
+
+function refreshCaptions(): void {
+  const showing = readLiveCaptions()
+  const next: CaptionsView = showing.ok
+    ? { status: 'ok', ...captions.view(showing.text) }
+    : { status: 'unavailable', reason: showing.reason, text: '', collectedFrom: 0, completeUntil: 0 }
+
+  const before = captionsView
+  if (
+    before &&
+    before.status === next.status &&
+    before.reason === next.reason &&
+    before.text === next.text &&
+    before.collectedFrom === next.collectedFrom &&
+    before.completeUntil === next.completeUntil
+  ) {
+    return
+  }
+  captionsView = next
+  send(IPC.onCaptions, next)
+}
+
+/**
+ * Sends what Live Captions has shown since the last ask, up to the last
+ * complete sentence — so pressing as the interviewer finishes sends their
+ * question and not the start of whatever they say next — to the support chat
+ * (Send to assistant) or to ChatGPT (Ask GPT).
+ */
+async function sendCaptions(to: CaptionTarget): Promise<{ ok: boolean; reason?: string }> {
+  const fail = (level: 'info' | 'warn' | 'error', reason: string) => {
+    send(IPC.onNotice, { level, message: reason })
+    return { ok: false, reason }
+  }
+
+  const state = live.snapshot()
+  if (!state.interview || state.status !== 'recording') {
+    return fail('warn', 'Start listening on an interview before sending captions.')
+  }
+
+  const showing = readLiveCaptions()
+  if (!showing.ok) return fail('error', showing.reason)
+
+  const question = captions.take(showing.text, to)
+  refreshCaptions()
+  if (!question) {
+    return fail('info', `No completed sentence in Live Captions since the last send to ${to === 'chat' ? 'the assistant' : 'ChatGPT'}.`)
+  }
+  log.info({ to, chars: question.length }, 'sending collected captions')
+
+  if (to === 'chat') {
+    const result = await live.sendMessage(question, 'caption')
+    return result.ok ? result : fail('error', result.reason ?? 'The message was not sent.')
+  }
+
+  const result = await pasteIntoChatGPT(question, { submit: true })
+  if (!result.ok) return fail('warn', `${result.message} The question is on the clipboard — paste it into ChatGPT.`)
+  return { ok: true }
 }
 
 /**
@@ -396,57 +345,58 @@ function applyTheme(): void {
   nativeTheme.themeSource = settings().get('theme')
 }
 
-function toggleSession(): void {
-  if (sessions.isRecording()) void stopSession()
-  else startSession()
+// Read once and kept: a recruitment does not change during the round it is
+// being read for, and the panel is opened and closed repeatedly.
+const recruitments = new Map<number, Recruitment>()
+
+async function loadRecruitment(id: number): Promise<Recruitment> {
+  const cached = recruitments.get(id)
+  if (cached) return cached
+
+  const client = teamBridgeClient()
+  if (!client) throw new Error('No TeamBridge server is configured. Add it in Settings.')
+
+  const recruitment = await client.recruitment(id)
+  recruitments.set(id, recruitment)
+  return recruitment
 }
 
-function startSession(): void {
-  // Consent is asked before any audio device is opened, not after.
-  if (!settings().get('consentAcknowledged')) {
-    showOverlay()
-    getOverlay()?.webContents.send(IPC.onNotice, { level: 'consent', message: '' })
-    return
-  }
+/**
+ * Opens ChatGPT and hands it the round: candidate, job description, and
+ * resume. A round with no recruitment, or one that cannot be read, still gets
+ * what the interview row itself says rather than nothing.
+ */
+async function briefAssistant(): Promise<{ ok: boolean; reason?: string }> {
+  const interview = live.snapshot().interview
+  if (!interview) return { ok: false, reason: 'Open an interview first.' }
 
-  const result = sessions.start()
-  showOverlay()
-
-  if (!result.ok) {
-    getOverlay()?.webContents.send(IPC.onNotice, { level: 'warn', message: result.reason })
-    return
-  }
-
-  getOverlay()?.webContents.send(IPC.onCaptureCommand, {
-    action: 'start',
-    channels: result.channels,
-  } satisfies CaptureCommand)
-}
-
-async function stopSession(): Promise<void> {
-  const result = await sessions.stop()
-  if (!result) return
-
-  lastFinishedSessionId = result.empty ? null : result.sessionId
-
-  if (result.empty) {
-    getOverlay()?.webContents.send(IPC.onNotice, {
-      level: 'info',
-      message: 'No speech was detected, so nothing was saved.',
-    })
-    return
-  }
-
-  if (settings().get('autoCopy')) {
-    const text = repo.transcriptText(result.sessionId)
-    if (text.trim()) {
-      clipboard.writeText(text)
-      getOverlay()?.webContents.send(IPC.onNotice, {
-        level: 'info',
-        message: 'Transcript copied to the clipboard.',
-      })
+  let recruitment: Recruitment | null = null
+  if (interview.recruitmentId !== null) {
+    try {
+      recruitment = await loadRecruitment(interview.recruitmentId)
+    } catch (err) {
+      log.warn({ err }, 'could not read the recruitment for the ChatGPT briefing')
     }
   }
+
+  const result = await pasteIntoChatGPT(buildBriefing(interview, recruitment))
+  send(
+    IPC.onNotice,
+    result.ok
+      ? { level: 'info', message: 'Pasted the candidate, job description and resume into ChatGPT. Review it and press Enter to send.' }
+      : {
+          level: 'warn',
+          message: `${result.message} The briefing is on the clipboard — paste it into ChatGPT.`,
+        },
+  )
+  return result.ok ? { ok: true } : { ok: false, reason: result.message }
+}
+
+/** Opens Live Captions on its own, outside an interview run, and says why if it cannot. */
+async function launchLiveCaptions(): Promise<{ ok: boolean; reason?: string }> {
+  const result = await openLiveCaptions()
+  if (!result.ok) send(IPC.onNotice, { level: 'error', message: result.reason })
+  return result
 }
 
 function createTray(): void {
@@ -459,113 +409,38 @@ function createTray(): void {
 
 function updateTray(): void {
   if (!tray) return
-  const recording = sessions.isRecording()
   const cfg = settings().all()
+  const listening = live.snapshot().status === 'recording'
 
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
-        label: recording ? 'Stop recording' : 'Start recording',
+        label: 'Open Live Captions',
         accelerator: cfg.hotkey,
-        click: () => toggleSession(),
+        click: () => void launchLiveCaptions(),
+      },
+      {
+        label: 'Ask GPT with the collected captions',
+        accelerator: cfg.captureHotkey,
+        enabled: listening,
+        click: () => void sendCaptions('chatgpt'),
       },
       { type: 'separator' },
       { label: 'Open TeamBridge Assist', click: () => showMain() },
       { label: 'Show overlay', click: () => showOverlay() },
       { label: 'Settings…', click: () => showSettings() },
-      {
-        label: 'Copy last transcript',
-        enabled: lastFinishedSessionId !== null,
-        click: () => {
-          if (!lastFinishedSessionId) return
-          clipboard.writeText(repo.transcriptText(lastFinishedSessionId))
-        },
-      },
-      { type: 'separator' },
-      {
-        label: 'Source',
-        submenu: (['system', 'microphone', 'both'] as AudioSource[]).map((source) => ({
-          label: SOURCE_LABELS[source],
-          type: 'radio' as const,
-          checked: cfg.audioSource === source,
-          enabled: !recording,
-          click: () => {
-            settings().patch({ audioSource: source })
-            updateTray()
-            send(IPC.onSessionState, sessions.snapshot())
-          },
-        })),
-      },
-      {
-        label: 'Copy automatically when a recording ends',
-        type: 'checkbox',
-        checked: cfg.autoCopy,
-        click: (item) => {
-          settings().patch({ autoCopy: item.checked })
-          updateTray()
-        },
-      },
-      { type: 'separator' },
-      {
-        label: 'Model',
-        submenu: WHISPER_MODELS.map((model) => ({
-          label: MODEL_LABELS[model],
-          type: 'radio' as const,
-          checked: cfg.model === model,
-          // Changing models mid-recording would lose the tail of the session,
-          // so the switch is deferred until the current one finishes.
-          enabled: !recording,
-          click: () => void selectModel(model),
-        })),
-      },
-      {
-        label: `Engine: ${describeEngine()}`,
-        enabled: false,
-      },
       { type: 'separator' },
       { label: 'Quit', click: () => void shutdown() },
     ]),
   )
 
-  tray.setToolTip(recording ? 'TeamBridge Assist — recording' : 'TeamBridge Assist')
-}
-
-async function selectModel(model: WhisperModel): Promise<void> {
-  if (settings().get('model') === model) return
-  settings().patch({ model })
-  updateTray()
-
-  // A model that is not cached yet downloads on load, which can take minutes
-  // with no other feedback — say so rather than looking hung.
-  getOverlay()?.webContents.send(IPC.onNotice, {
-    level: 'info',
-    message: `Loading ${model}. The first use of a model downloads it, which can take a few minutes.`,
-  })
-
-  await whisper.restartWith(whisperOptions())
-  updateTray()
-}
-
-function describeEngine(): string {
-  const s = whisper.getStatus()
-  switch (s.state) {
-    case 'ready':
-      return `${s.model} on ${s.device}`
-    case 'loading':
-      return 'loading…'
-    case 'failed':
-      return 'unavailable'
-    default:
-      return 'stopped'
-  }
+  tray.setToolTip(listening ? 'TeamBridge Assist — listening' : 'TeamBridge Assist')
 }
 
 async function shutdown(): Promise<void> {
   log.info('shutting down')
-  if (sessions.isRecording()) await stopSession()
+  await live.stopListening()
   unregisterAll()
-  await whisper.stop()
-  closeDatabase()
   tray?.destroy()
   for (const win of BrowserWindow.getAllWindows()) win.destroy()
   app.quit()
