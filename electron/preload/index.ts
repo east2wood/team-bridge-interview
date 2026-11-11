@@ -65,6 +65,9 @@ const api = {
   refreshChat: (): Promise<void> => ipcRenderer.invoke(IPC.chatRefresh),
   getCaptions: (): Promise<CaptionsView | null> => ipcRenderer.invoke(IPC.captionsGet),
   onCaptions: (cb: (view: CaptionsView | null) => void) => subscribe(IPC.onCaptions, cb),
+  /** As an assistant: the interviewer's Live Captions, null when they are not listening. */
+  getWatchedCaptions: (): Promise<string | null> => ipcRenderer.invoke(IPC.watchedCaptionsGet),
+  onWatchedCaptions: (cb: (text: string | null) => void) => subscribe(IPC.onWatchedCaptions, cb),
 
   dismiss: () => ipcRenderer.send(IPC.overlayDismiss),
 

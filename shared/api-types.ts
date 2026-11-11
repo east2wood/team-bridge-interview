@@ -21,6 +21,8 @@ export interface Interview {
   status: string
   /** Somebody is listening to this round now, from any machine. */
   live: boolean
+  /** Whether you may start and stop listening: only the round's interviewer may. */
+  canListen: boolean
   position: { title: string | null }
   company: { name: string | null }
   /** Absent when the caller may not see whose round it is. */
@@ -106,7 +108,8 @@ export interface AssistMessage {
   content: string
   /** The question it was sent about, when it was sent about one. */
   question: string | null
-  sender: { name: string | null }
+  /** The id is null from servers that do not send it. */
+  sender: { id: number | null; name: string | null }
   createdAt: string
 }
 
@@ -134,9 +137,34 @@ export interface RealtimeEvent {
  */
 export type LiveStatus = 'idle' | 'starting' | 'recording' | 'error'
 
+/**
+ * The interviewer's run, as somebody who joined the round as its assistant
+ * sees it.
+ */
+export interface WatchedRun {
+  sessionId: number
+  startedAt: number | null
+  interviewer: { id: number | null; name: string | null }
+}
+
+/** What the server says about a round right now: its live run, and its captions. */
+export interface LiveRound {
+  session: WatchedRun | null
+  captions: string | null
+}
+
 export interface LiveSessionState {
   status: LiveStatus
   interview: Interview | null
+  /**
+   * How this app is in the round: as its interviewer, who listens, or as an
+   * assistant — anybody else on the team — who watches and chats as support.
+   */
+  role: 'interviewer' | 'assistant'
+  /** Who this app's key belongs to, once known: to tell one's own messages apart. */
+  meId: number | null
+  /** As an assistant: the interviewer's run being watched, or null until they start. */
+  watching: WatchedRun | null
   /** The TeamBridge run opened by Start Listening. */
   serverSessionId: number | null
   /** When this run of listening began. */

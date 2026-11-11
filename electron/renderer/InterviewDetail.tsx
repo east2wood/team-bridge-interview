@@ -3,6 +3,8 @@ import type { AssistMessage, LiveSessionState } from '@shared/api-types'
 import { formatTime } from './InterviewList'
 import { RecruitmentPanel } from './RecruitmentPanel'
 import { CaptionsPanel } from './CaptionsPanel'
+import { WatchedCaptionsPanel } from './WatchedCaptionsPanel'
+import { isMine } from '@shared/chat'
 
 /**
  * One interview: the chat with the people watching it on TeamBridge Web, and —
@@ -10,6 +12,10 @@ import { CaptionsPanel } from './CaptionsPanel'
  *
  * The chat belongs to the round, not to a run of listening, so it is there
  * before Start Listening and after Stop.
+ *
+ * Somebody who is not the round's interviewer has joined it as an assistant:
+ * the same chat, written from the support side, and — while the interviewer
+ * is listening — their Live Captions beside it, as they change.
  */
 export function InterviewDetail({ live }: { live: LiveSessionState }) {
   const interview = live.interview
@@ -49,6 +55,8 @@ export function InterviewDetail({ live }: { live: LiveSessionState }) {
 
   // A run that is actually going, as opposed to one that stopped on an error.
   const running = live.status === 'starting' || live.status === 'recording'
+  const assistant = live.role === 'assistant'
+  const interviewerName = live.watching?.interviewer.name ?? 'The interviewer'
 
   return (
     <div className="chat">
@@ -78,6 +86,7 @@ export function InterviewDetail({ live }: { live: LiveSessionState }) {
           Recruitment Details
         </button>
         {running && live.sessionStartedAt && <Elapsed since={live.sessionStartedAt} />}
+        {assistant && live.watching?.startedAt && <Elapsed since={live.watching.startedAt} />}
         {running && <OpenChatGPT className="compact" />}
         {running && (
           <button className="compact" onClick={() => void window.tb.openLiveCaptions()}>
@@ -89,7 +98,7 @@ export function InterviewDetail({ live }: { live: LiveSessionState }) {
             Stop
           </button>
         )}
-        <StatusPill live={live} />
+        {assistant ? <WatchPill live={live} /> : <StatusPill live={live} />}
       </header>
 
       <div className="chat__body">
@@ -98,16 +107,29 @@ export function InterviewDetail({ live }: { live: LiveSessionState }) {
             <div className="thread">
               {live.messages.length === 0 && (
                 <div className="ready">
-                  <strong>Chat with the support team</strong>
-                  <p className="muted">
-                    Messages from people watching this round on TeamBridge Web appear here, and
-                    what you send goes to them.
-                  </p>
+                  {assistant ? (
+                    <>
+                      <strong>You are the support team on this round</strong>
+                      <p className="muted">
+                        What you send goes to the interviewer and to everybody watching on
+                        TeamBridge Web. Their Live Captions appear beside the chat once they start
+                        listening.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <strong>Chat with the support team</strong>
+                      <p className="muted">
+                        Messages from people watching this round on TeamBridge Web appear here, and
+                        what you send goes to them.
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
 
               {live.messages.map((message) => (
-                <ChatMessage key={message.id} message={message} />
+                <ChatMessage key={message.id} message={message} live={live} />
               ))}
             </div>
           </div>
@@ -120,14 +142,18 @@ export function InterviewDetail({ live }: { live: LiveSessionState }) {
             )}
           </div>
 
-          <ChatInput />
+          <ChatInput
+            placeholder={assistant ? `Message ${live.watching?.interviewer.name ?? 'the interviewer'}…` : undefined}
+          />
         </div>
 
         {running && <CaptionsPanel />}
+        {assistant && live.watching && <WatchedCaptionsPanel interviewer={interviewerName} />}
         {details && <RecruitmentPanel interview={interview} onClose={() => setDetails(false)} />}
       </div>
 
-      {!running && <StartBar live={live} />}
+      {!running && !assistant && <StartBar live={live} />}
+      {assistant && <AssistantBar live={live} />}
     </div>
   )
 }
@@ -136,12 +162,16 @@ export function InterviewDetail({ live }: { live: LiveSessionState }) {
 
 /**
  * One line of the chat. Theirs on the left, labelled with who sent it and —
- * for a suggested answer — that it is one; yours on the right.
+ * for a suggested answer — that it is one; yours on the right. Which are yours
+ * depends on the side: the interviewer's from the desktop, an assistant's
+ * from the support side.
  */
-function ChatMessage({ message }: { message: AssistMessage }) {
+function ChatMessage({ message, live }: { message: AssistMessage; live: LiveSessionState }) {
   const [copied, setCopied] = useState(false)
-  const mine = message.source === 'desktop'
-  const who = mine ? 'You' : (message.sender.name ?? 'Support')
+  const mine = isMine(message, live.role, live.meId)
+  const who = mine
+    ? 'You'
+    : (message.sender.name ?? (message.source === 'desktop' ? 'Interviewer' : 'Support'))
 
   return (
     <article
@@ -174,7 +204,7 @@ function ChatMessage({ message }: { message: AssistMessage }) {
 /* ------------------------------ composer ------------------------------- */
 
 /** The message box under the chat: always there while a round is open. */
-function ChatInput() {
+function ChatInput({ placeholder = 'Message the support team…' }: { placeholder?: string }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
 
@@ -194,7 +224,7 @@ function ChatInput() {
       <div className="composer__row">
         <input
           value={text}
-          placeholder="Message the support team…"
+          placeholder={placeholder}
           disabled={sending}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -214,6 +244,7 @@ function ChatInput() {
  * captions column, where the text they act on is.
  */
 function StartBar({ live }: { live: LiveSessionState }) {
+  // Only shown to the round's interviewer: everybody else has the AssistantBar.
   return (
     <footer className="composer composer--start">
       <div className="composer__actions">
@@ -223,6 +254,26 @@ function StartBar({ live }: { live: LiveSessionState }) {
         <OpenChatGPT className="big" />
       </div>
       {live.error && <span className="muted small">{live.error}</span>}
+    </footer>
+  )
+}
+
+/**
+ * What an assistant has instead of Start Listening: who is listening, or that
+ * nobody is yet. Open ChatGPT works the same for them.
+ */
+function AssistantBar({ live }: { live: LiveSessionState }) {
+  const name = live.watching?.interviewer.name ?? 'The interviewer'
+  return (
+    <footer className="composer composer--start">
+      <div className="composer__actions">
+        <OpenChatGPT className="big" />
+      </div>
+      <span className="muted small">
+        {live.watching
+          ? `${name} is listening. Their Live Captions are beside the chat.`
+          : 'Waiting for the interviewer to start listening. Only they can start or stop it.'}
+      </span>
     </footer>
   )
 }
@@ -261,6 +312,16 @@ function StatusPill({ live }: { live: LiveSessionState }) {
     <span className="statuspill">
       <span className={`dot ${listening ? 'dot--live' : ''}`} aria-hidden />
       {listening ? 'Listening' : live.status === 'idle' ? 'Ready' : 'Working…'}
+    </span>
+  )
+}
+
+function WatchPill({ live }: { live: LiveSessionState }) {
+  const watching = live.watching !== null
+  return (
+    <span className="statuspill" title="You joined this round as its assistant">
+      <span className={`dot ${watching ? 'dot--live' : ''}`} aria-hidden />
+      {watching ? 'Assisting · Live' : 'Assisting · Waiting'}
     </span>
   )
 }

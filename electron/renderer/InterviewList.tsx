@@ -107,7 +107,14 @@ export function InterviewList({
                 {interview.candidate && <span>{interview.candidate.name}</span>}
               </span>
               {interview.live && (
-                <span className="livebadge" title="Somebody is listening to this round now">
+                <span
+                  className="livebadge"
+                  title={
+                    interview.canListen
+                      ? 'Somebody is listening to this round now'
+                      : 'The interviewer is listening now — open it to join as assistant'
+                  }
+                >
                   <span className="dot dot--live" aria-hidden /> Live
                 </span>
               )}

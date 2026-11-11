@@ -21,6 +21,7 @@ export const IPC = {
   chatSend: 'chat:send',
   chatRefresh: 'chat:refresh',
   captionsGet: 'captions:get',
+  watchedCaptionsGet: 'watched-captions:get',
   onLiveState: 'live:state',
 
   // settings window
@@ -38,4 +39,6 @@ export const IPC = {
   // main → renderer
   onNotice: 'ui:notice',
   onCaptions: 'captions:view',
+  /** As an assistant: what the interviewer's Live Captions show. */
+  onWatchedCaptions: 'watched-captions:view',
 } as const
