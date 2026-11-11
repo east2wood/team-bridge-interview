@@ -45,6 +45,7 @@ Electron, with hard boundaries between processes.
 
 - **Every credential lives in main**, encrypted with Electron's `safeStorage` (DPAPI-backed on Windows). The renderer can ask for an answer; it can never see the API token.
 - **Live Captions is launched and read.** The capture hotkey reads the caption text through UI Automation (the `CaptionsTextBlock` element), called directly from the main process with koffi — no helper process. The app starts `%SystemRoot%\System32\LiveCaptions.exe` detached, so it outlives the app and is the user's to close. If it is missing (Windows older than 11 22H2), Start Listening reports that instead of starting.
+- **Certificate errors are ignored**, as in the candidate app: TeamBridge runs on the local network behind Caddy, whose certificates come from its own authority that other machines do not trust. That covers the API requests (Chromium's `ignore-certificate-errors`) and the live socket (`rejectUnauthorized: false`, since Node does not read the Windows certificate store at all). The connection is still encrypted, but the app does not check that it is talking to the real server.
 
 ---
 

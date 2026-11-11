@@ -60,6 +60,13 @@ const captions = new CaptionCapture()
 // test profile starts empty instead: it is there to be somebody else.
 if (!profile) migrateUserData()
 
+// TeamBridge runs on the local network behind Caddy, whose certificates come
+// from its own authority, which other machines don't trust. Certificate errors
+// are ignored so they can connect, as the candidate app does. This covers what
+// goes through Chromium — every API request and the connection test; the live
+// socket goes through Node instead and is told the same (realtime-client.ts).
+app.commandLine.appendSwitch('ignore-certificate-errors')
+
 // One instance only: two processes fighting over the same hotkey and the same
 // interview run is a support ticket waiting to happen. The lock is held per
 // data folder, so a test profile runs beside the usual copy.
